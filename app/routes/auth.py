@@ -1,5 +1,7 @@
+import os
 from datetime import datetime, timedelta, timezone
 
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
@@ -10,21 +12,50 @@ from app.database import get_db
 from app.models.user import User
 
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+# =========================================================
+# ENVIRONMENT
+# =========================================================
+
+load_dotenv()
 
 
-# =========================
+# =========================================================
+# ROUTER
+# =========================================================
+
+router = APIRouter(
+    prefix="/auth",
+    tags=["Authentication"]
+)
+
+
+# =========================================================
 # JWT CONFIG
-# =========================
+# =========================================================
 
-SECRET_KEY = "my-super-secret-key-change-this-later"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+ALGORITHM = os.getenv(
+    "ALGORITHM",
+    "HS256"
+)
+
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv(
+        "ACCESS_TOKEN_EXPIRE_MINUTES",
+        "60"
+    )
+)
+
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY is not configured"
+    )
 
 
-# =========================
+# =========================================================
 # PASSWORD HASHING
-# =========================
+# =========================================================
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -32,18 +63,18 @@ pwd_context = CryptContext(
 )
 
 
-# =========================
+# =========================================================
 # OAUTH2
-# =========================
+# =========================================================
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/auth/login"
 )
 
 
-# =========================
+# =========================================================
 # PASSWORD FUNCTIONS
-# =========================
+# =========================================================
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -53,25 +84,36 @@ def verify_password(
     plain_password: str,
     hashed_password: str
 ) -> bool:
+
     return pwd_context.verify(
         plain_password,
         hashed_password
     )
 
 
-# =========================
+# =========================================================
 # JWT CREATE
-# =========================
+# =========================================================
 
 def create_access_token(
     user_id: int,
     expires_delta: timedelta | None = None
-):
+) -> str:
+
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+
+        expire = (
+            datetime.now(timezone.utc)
+            + expires_delta
+        )
+
     else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+
+        expire = (
+            datetime.now(timezone.utc)
+            + timedelta(
+                minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+            )
         )
 
     to_encode = {
@@ -86,13 +128,14 @@ def create_access_token(
     )
 
 
-# =========================
+# =========================================================
 # JWT VERIFY
-# =========================
+# =========================================================
 
 def verify_token(
     token: str = Depends(oauth2_scheme)
-):
+) -> int:
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
@@ -102,6 +145,7 @@ def verify_token(
     )
 
     try:
+
         payload = jwt.decode(
             token,
             SECRET_KEY,
@@ -116,12 +160,13 @@ def verify_token(
         return int(user_id)
 
     except (JWTError, ValueError):
+
         raise credentials_exception
 
 
-# =========================
+# =========================================================
 # REGISTER
-# =========================
+# =========================================================
 
 @router.post("/register")
 def register(
@@ -138,17 +183,16 @@ def register(
     )
 
     if existing_user:
+
         raise HTTPException(
             status_code=400,
             detail="Email already exists"
         )
 
-    hashed_password = hash_password(password)
-
     user = User(
         name=name,
         email=email,
-        password=hashed_password
+        password=hash_password(password)
     )
 
     db.add(user)
@@ -163,9 +207,9 @@ def register(
     }
 
 
-# =========================
+# =========================================================
 # LOGIN
-# =========================
+# =========================================================
 
 @router.post("/login")
 def login(
@@ -180,6 +224,7 @@ def login(
     )
 
     if not user:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password",
@@ -192,6 +237,7 @@ def login(
         form_data.password,
         user.password
     ):
+
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password",
@@ -201,7 +247,7 @@ def login(
         )
 
     access_token = create_access_token(
-        user_id=user.id
+        user.id
     )
 
     return {
@@ -210,9 +256,9 @@ def login(
     }
 
 
-# =========================
+# =========================================================
 # CURRENT USER
-# =========================
+# =========================================================
 
 @router.get("/me")
 def get_current_user(
@@ -227,6 +273,7 @@ def get_current_user(
     )
 
     if not user:
+
         raise HTTPException(
             status_code=404,
             detail="User not found"
