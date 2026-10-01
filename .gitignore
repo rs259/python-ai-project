@@ -4,3 +4,26 @@ __pycache__/
 app.db
 app.db.backup
 .env
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environment
+venv/
+.env
+
+# RAG generated files
+app/rag/faiss.index
+app/rag/text_chunks.npy
+app/rag/uploads/*.pdf
+
+# Local Ollama
+.ollama/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
