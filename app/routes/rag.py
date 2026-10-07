@@ -63,9 +63,8 @@ def save_chat_history(user_id: int, query: str, answer: str):
 
     cursor.execute(
         """
-        INSERT INTO chat_history (user_id, query, answer)
-        VALUES (?, ?, ?)
-        """,
+INSERT INTO chat_history (user_id, query, answer, created_at)
+VALUES (?, ?, ?, CURRENT_TIMESTAMP)        """,
         (user_id, query, answer)
     )
 
