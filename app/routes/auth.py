@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -27,6 +28,12 @@ router = APIRouter(
     prefix="/auth",
     tags=["Authentication"]
 )
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
 
 
 # =========================================================
@@ -170,11 +177,12 @@ def verify_token(
 
 @router.post("/register")
 def register(
-    name: str,
-    email: str,
-    password: str,
+    data: RegisterRequest,
     db: Session = Depends(get_db)
 ):
+    name = data.name
+    email = data.email
+    password = data.password
 
     existing_user = (
         db.query(User)

@@ -23,3 +23,6 @@ def get_db():
         yield db
     finally:
         db.close()
+from app.models.chat import ChatHistory
+
+Base.metadata.create_all(bind=engine)

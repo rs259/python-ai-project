@@ -12,7 +12,7 @@ TEXT_PATH = "app/rag/text_chunks.npy"
 model = SentenceTransformer(MODEL_NAME)
 
 
-def create_chunks(text: str, chunk_size: int = 500):
+def create_chunks(text: str, chunk_size: int = 50):
     """
     Split text into small chunks.
     """
@@ -68,7 +68,7 @@ def create_vector_store(text: str):
     }
 
 
-def search_vector_store(query: str, top_k: int = 3):
+def search_vector_store(query: str, top_k: int = 10):
     """
     Search similar chunks from FAISS.
     """

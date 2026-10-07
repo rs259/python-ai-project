@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI RAG Assistant</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="loginPage" class="auth-page">
+    <div class="auth-card">
+        <h1>🤖 AI RAG Assistant</h1>
+        <p>Login to continue</p>
+
+        <form id="loginForm">
+            <input
+                type="text"
+                id="loginUsername"
+                placeholder="Username"
+                required
+            >
+
+            <input
+                type="password"
+                id="loginPassword"
+                placeholder="Password"
+                required
+            >
+
+            <button type="submit">Login</button>
+        </form>
+
+        <p id="loginMessage"></p>
+
+        <p class="switch">
+            Don't have an account?
+            <button type="button" onclick="showRegister()">
+                Register
+            </button>
+        </p>
+    </div>
+</div>
+
+
+<!-- REGISTER -->
+<div id="registerPage" class="auth-page hidden">
+    <div class="auth-card">
+        <h1>📝 Create Account</h1>
+        <p>Register your account</p>
+
+        <form id="registerForm">
+
+            <input
+                type="text"
+                id="registerUsername"
+                placeholder="Username"
+                required
+            >
+
+            <input
+                type="email"
+                id="registerEmail"
+                placeholder="Email"
+                required
+            >
+
+            <input
+                type="password"
+                id="registerPassword"
+                placeholder="Password"
+                required
+            >
+
+            <button type="submit">Register</button>
+
+        </form>
+
+        <p id="registerMessage"></p>
+
+        <p class="switch">
+            Already have an account?
+            <button type="button" onclick="showLogin()">
+                Login
+            </button>
+        </p>
+    </div>
+</div>
+
+
+<!-- DASHBOARD -->
+<div id="dashboardPage" class="hidden">
+
+    <header class="topbar">
+
+        <div>
+            <h2>🤖 AI RAG Assistant</h2>
+        </div>
+
+        <div>
+            <span id="currentUser">User</span>
+            <button class="logout-btn" onclick="logout()">
+                Logout
+            </button>
+        </div>
+
+    </header>
+
+
+    <main class="dashboard">
+
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+
+            <h3>Menu</h3>
+
+            <button onclick="showSection('askSection')">
+                💬 Ask AI
+            </button>
+
+            <button onclick="showSection('uploadSection')">
+                📄 Upload PDF
+            </button>
+
+            <button onclick="showSection('historySection')">
+                🕘 Chat History
+            </button>
+
+        </aside>
+
+
+        <!-- CONTENT -->
+        <section class="content">
+
+
+            <!-- ASK AI -->
+            <div id="askSection" class="section">
+
+                <h1>Ask AI</h1>
+
+                <p>
+                    Ask questions from your uploaded documents.
+                </p>
+
+                <div class="ask-box">
+
+                    <input
+                        type="text"
+                        id="questionInput"
+                        placeholder="Ask something..."
+                    >
+
+                    <button onclick="askAI()">
+                        Ask
+                    </button>
+
+                </div>
+
+                <div id="answerBox" class="answer-box hidden">
+
+                    <h3>🤖 AI Answer</h3>
+
+                    <p id="answerText"></p>
+
+                </div>
+
+            </div>
+
+
+            <!-- UPLOAD -->
+            <div id="uploadSection" class="section hidden">
+
+                <h1>Upload PDF</h1>
+
+                <p>
+                    Upload a PDF document for RAG search.
+                </p>
+
+                <div class="upload-box">
+
+                    <input
+                        type="file"
+                        id="pdfFile"
+                        accept=".pdf"
+                    >
+
+                    <button onclick="uploadPDF()">
+                        Upload PDF
+                    </button>
+
+                </div>
+
+                <p id="uploadMessage"></p>
+
+            </div>
+
+
+            <!-- HISTORY -->
+            <div id="historySection" class="section hidden">
+
+                <h1>Chat History</h1>
+
+                <button onclick="loadHistory()">
+                    🔄 Refresh History
+                </button>
+
+                <div id="historyList">
+                    Loading...
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+</div>
+
+
+<script src="/static/app.js"></script>
+
+</body>
+</html>

@@ -1,32 +1,80 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pathlib import Path
+import sqlite3
 
 from ollama import chat
-
+from app.routes.auth import verify_token
 from app.rag.pdf_loader import extract_text_from_pdf
 from app.rag.vector_store import (
     create_vector_store,
     search_vector_store,
 )
 
-
 router = APIRouter(
     prefix="/rag",
     tags=["RAG"]
 )
 
-
-# =========================================================
-# UPLOAD DIRECTORY
-# =========================================================
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 UPLOAD_DIR = Path("app/rag/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+DATABASE = "app.db"
+OLLAMA_MODEL = "llama3.2"
 
-# =========================================================
-# PDF UPLOAD
-# =========================================================
+
+# ============================================================
+# CHAT HISTORY TABLE
+# ============================================================
+
+def create_chat_history_table():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+CREATE TABLE IF NOT EXISTS chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER
+)        """
+    )
+
+    conn.commit()
+    conn.close()
+
+
+create_chat_history_table()
+
+
+# ============================================================
+# SAVE CHAT HISTORY
+# ============================================================
+
+def save_chat_history(user_id: int, query: str, answer: str):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO chat_history (user_id, query, answer)
+        VALUES (?, ?, ?)
+        """,
+        (user_id, query, answer)
+    )
+
+    conn.commit()
+    conn.close()
+
+# ============================================================
+# UPLOAD PDF
+# ============================================================
 
 @router.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -46,29 +94,31 @@ async def upload_pdf(file: UploadFile = File(...)):
     file_path = UPLOAD_DIR / file.filename
 
     try:
-        # Read uploaded file
+        # Read uploaded PDF
         content = await file.read()
 
         # Save PDF
         with open(file_path, "wb") as f:
             f.write(content)
 
-        # Extract text from PDF
-        text = extract_text_from_pdf(str(file_path))
+        # Extract PDF text
+        text = extract_text_from_pdf(
+            str(file_path)
+        )
 
-        if not text or not text.strip():
+        if not text:
             raise HTTPException(
                 status_code=400,
-                detail="No text could be extracted from the PDF"
+                detail="No text could be extracted from PDF"
             )
 
-        # Create vector store
+        # Create FAISS vector store
         create_vector_store(text)
 
         return {
             "message": "PDF uploaded successfully",
             "filename": file.filename,
-            "characters": len(text),
+            "characters": len(text)
         }
 
     except HTTPException:
@@ -77,16 +127,16 @@ async def upload_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"PDF processing failed: {str(e)}"
+            detail=f"PDF upload failed: {str(e)}"
         )
 
 
-# =========================================================
-# RAG SEARCH
-# =========================================================
+# ============================================================
+# VECTOR SEARCH
+# ============================================================
 
 @router.get("/search")
-def search(query: str):
+async def search(query: str):
 
     if not query.strip():
         raise HTTPException(
@@ -95,6 +145,7 @@ def search(query: str):
         )
 
     try:
+
         results = search_vector_store(query)
 
         return {
@@ -103,22 +154,25 @@ def search(query: str):
         }
 
     except Exception as e:
+
         raise HTTPException(
             status_code=500,
-            detail=f"Search failed: {str(e)}"
+            detail=f"Vector search failed: {str(e)}"
         )
 
 
-# =========================================================
-# RAG ASK - OLLAMA + LLAMA 3.2
-# =========================================================
+# ============================================================
+# RAG ASK
+# ============================================================
 
 @router.get("/ask")
-def ask(query: str):
-
-    # -----------------------------------------------------
+async def ask(
+    query: str,
+    user_id: int = Depends(verify_token)
+):
+    # --------------------------------------------------------
     # Validate query
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
     if not query.strip():
         raise HTTPException(
@@ -126,33 +180,35 @@ def ask(query: str):
             detail="Query cannot be empty"
         )
 
-    # -----------------------------------------------------
-    # Search relevant documents
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Step 1: Search relevant documents
+    # --------------------------------------------------------
 
     try:
+
         results = search_vector_store(query)
 
     except Exception as e:
+
         raise HTTPException(
             status_code=500,
             detail=f"Vector search failed: {str(e)}"
         )
 
-    # -----------------------------------------------------
-    # No results
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Step 2: Check results
+    # --------------------------------------------------------
 
     if not results:
-        return {
-            "query": query,
-            "answer": "I could not find relevant information in the uploaded document.",
-            "sources": []
-        }
 
-    # -----------------------------------------------------
-    # Build context from search results
-    # -----------------------------------------------------
+        raise HTTPException(
+            status_code=404,
+            detail="No relevant documents found"
+        )
+
+    # --------------------------------------------------------
+    # Step 3: Build context
+    # --------------------------------------------------------
 
     context_parts = []
 
@@ -160,16 +216,10 @@ def ask(query: str):
 
         if isinstance(result, dict):
 
-            # Try common text keys
-            text = (
-                result.get("text")
-                or result.get("content")
-                or result.get("page_content")
-                or ""
-            )
+            text = result.get("text")
 
             if text:
-                context_parts.append(str(text))
+                context_parts.append(text)
 
         elif isinstance(result, str):
 
@@ -177,64 +227,142 @@ def ask(query: str):
 
     context = "\n\n".join(context_parts)
 
-    # -----------------------------------------------------
-    # No usable text
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Step 4: Check context
+    # --------------------------------------------------------
 
-    if not context.strip():
+    if not context:
+
         return {
             "query": query,
-            "answer": "Relevant documents were found, but no text was available.",
+            "answer": (
+                "Relevant documents were found, "
+                "but no text was available."
+            ),
             "sources": results
         }
 
-    # -----------------------------------------------------
-    # Send context + question to Ollama
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Step 5: Create LLM prompt
+    # --------------------------------------------------------
+
+    prompt = f"""
+You are a helpful AI assistant.
+
+Answer the user's question using ONLY the information
+provided in the context below.
+
+If the answer is not available in the context,
+say:
+
+"I could not find the answer in the uploaded document."
+
+Do not invent information.
+
+Keep the answer clear and concise.
+
+Context:
+--------------------
+{context}
+--------------------
+
+User Question:
+{query}
+
+Answer:
+"""
+
+    # --------------------------------------------------------
+    # Step 6: Call Ollama
+    # --------------------------------------------------------
 
     try:
 
         response = chat(
-            model="llama3.2",
+            model=OLLAMA_MODEL,
             messages=[
                 {
-                    "role": "system",
-                    "content": (
-                        "You are a helpful AI assistant. "
-                        "Answer the user's question using only the "
-                        "information provided in the context. "
-                        "Do not invent information. "
-                        "If the answer is not available in the context, "
-                        "say: "
-                        "'I could not find this information in the uploaded document.'"
-                    )
-                },
-                {
                     "role": "user",
-                    "content": (
-                        f"Context:\n\n"
-                        f"{context}\n\n"
-                        f"Question:\n"
-                        f"{query}"
-                    )
+                    "content": prompt
                 }
             ]
         )
 
-        answer = response.message.content
+        answer = response["message"]["content"].strip()
 
     except Exception as e:
+
         raise HTTPException(
             status_code=500,
-            detail=f"Ollama AI response failed: {str(e)}"
+            detail=f"Ollama failed: {str(e)}"
         )
 
-    # -----------------------------------------------------
-    # Final response
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Step 7: Save chat history
+    # --------------------------------------------------------
+
+    try:
+
+        save_chat_history(
+            user_id=user_id,
+            query=query,
+            answer=answer
+        )
+
+    except Exception as e:
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat history save failed: {str(e)}"
+        )
+
+    # --------------------------------------------------------
+    # Step 8: Return response
+    # --------------------------------------------------------
 
     return {
         "query": query,
         "answer": answer,
         "sources": results
     }
+
+# ============================================================
+# CHAT HISTORY
+# ============================================================
+
+from app.routes.auth import get_current_user
+
+
+@router.get("/history")
+async def chat_history(current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+
+    try:
+        conn = sqlite3.connect(DATABASE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT id, query, answer, created_at
+            FROM chat_history
+            WHERE user_id = ?
+            ORDER BY id DESC
+            """,
+            (user_id,)
+        )
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return {
+            "user_id": user_id,
+            "count": len(rows),
+            "history": [dict(row) for row in rows]
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat history fetch failed: {str(e)}"
+        )
