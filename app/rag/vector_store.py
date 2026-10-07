@@ -5,14 +5,14 @@ from sentence_transformers import SentenceTransformer
 
 
 MODEL_NAME = "all-MiniLM-L6-v2"
+
 INDEX_PATH = "app/rag/faiss.index"
 TEXT_PATH = "app/rag/text_chunks.npy"
-
 
 model = SentenceTransformer(MODEL_NAME)
 
 
-def create_chunks(text: str, chunk_size: int = 50):
+def create_chunks(text: str, chunk_size: int = 300):
     """
     Split text into small chunks.
     """
@@ -32,7 +32,7 @@ def create_chunks(text: str, chunk_size: int = 50):
 
 def create_vector_store(text: str):
     """
-    Create FAISS vector index from text.
+    Create FAISS vector store from document text.
     """
 
     chunks = create_chunks(text)
@@ -45,17 +45,20 @@ def create_vector_store(text: str):
         convert_to_numpy=True
     )
 
+    embeddings = embeddings.astype("float32")
+
     dimension = embeddings.shape[1]
 
     index = faiss.IndexFlatL2(dimension)
 
-    index.add(
-        np.array(embeddings).astype("float32")
-    )
+    index.add(embeddings)
 
     os.makedirs("app/rag", exist_ok=True)
 
-    faiss.write_index(index, INDEX_PATH)
+    faiss.write_index(
+        index,
+        INDEX_PATH
+    )
 
     np.save(
         TEXT_PATH,
@@ -74,10 +77,14 @@ def search_vector_store(query: str, top_k: int = 10):
     """
 
     if not os.path.exists(INDEX_PATH):
-        raise FileNotFoundError("FAISS index not found.")
+        raise FileNotFoundError(
+            "FAISS index not found. Please upload a PDF first."
+        )
 
     if not os.path.exists(TEXT_PATH):
-        raise FileNotFoundError("Text chunks not found.")
+        raise FileNotFoundError(
+            "Text chunks not found. Please upload a PDF first."
+        )
 
     index = faiss.read_index(INDEX_PATH)
 
@@ -91,8 +98,10 @@ def search_vector_store(query: str, top_k: int = 10):
         convert_to_numpy=True
     )
 
+    query_embedding = query_embedding.astype("float32")
+
     distances, indices = index.search(
-        np.array(query_embedding).astype("float32"),
+        query_embedding,
         top_k
     )
 
@@ -102,6 +111,7 @@ def search_vector_store(query: str, top_k: int = 10):
         distances[0],
         indices[0]
     ):
+
         if index_id == -1:
             continue
 
