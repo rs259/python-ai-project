@@ -35,3 +35,5 @@ app/rag/uploads/
 app/rag/vector_store.py.backup
 test.png
 test_documents/
+
+app/rag/vector_store.single_backup.py

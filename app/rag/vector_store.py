@@ -14,6 +14,10 @@ model = SentenceTransformer(MODEL_NAME)
 
 
 def create_chunks(text: str, chunk_size: int = 300):
+    """
+    Split document text into small chunks.
+    """
+
     words = text.split()
 
     chunks = []
@@ -29,8 +33,11 @@ def create_chunks(text: str, chunk_size: int = 300):
 
 def create_vector_store(text: str, filename: str = "unknown"):
     """
-    Add document chunks to existing FAISS index.
-    New documents are appended instead of overwriting old documents.
+    Add a document to the existing FAISS index.
+
+    Important:
+    New documents are APPENDED.
+    Existing documents are NOT overwritten.
     """
 
     chunks = create_chunks(text)
@@ -47,16 +54,20 @@ def create_vector_store(text: str, filename: str = "unknown"):
 
     dimension = embeddings.shape[1]
 
+    os.makedirs("app/rag", exist_ok=True)
+
     # --------------------------------------------------
-    # Create new index OR load existing index
+    # Load existing FAISS index or create new one
     # --------------------------------------------------
 
     if os.path.exists(INDEX_PATH):
         index = faiss.read_index(INDEX_PATH)
 
+        # Safety check
         if index.d != dimension:
             raise ValueError(
-                "Embedding dimension does not match existing FAISS index."
+                f"FAISS dimension mismatch. "
+                f"Existing: {index.d}, New: {dimension}"
             )
 
     else:
@@ -68,12 +79,10 @@ def create_vector_store(text: str, filename: str = "unknown"):
 
     index.add(embeddings)
 
-    os.makedirs("app/rag", exist_ok=True)
-
     faiss.write_index(index, INDEX_PATH)
 
     # --------------------------------------------------
-    # Existing text chunks
+    # Load existing text chunks
     # --------------------------------------------------
 
     if os.path.exists(TEXT_PATH):
@@ -92,7 +101,7 @@ def create_vector_store(text: str, filename: str = "unknown"):
     )
 
     # --------------------------------------------------
-    # Metadata
+    # Load existing metadata
     # --------------------------------------------------
 
     if os.path.exists(METADATA_PATH):
@@ -103,10 +112,20 @@ def create_vector_store(text: str, filename: str = "unknown"):
     else:
         old_metadata = []
 
-    for _ in chunks:
-        old_metadata.append({
-            "filename": filename
-        })
+    start_chunk_index = len(old_metadata)
+
+    new_metadata = []
+
+    for i, chunk in enumerate(chunks):
+
+        new_metadata.append(
+            {
+                "filename": filename,
+                "chunk_index": start_chunk_index + i
+            }
+        )
+
+    old_metadata.extend(new_metadata)
 
     np.save(
         METADATA_PATH,
@@ -122,6 +141,9 @@ def create_vector_store(text: str, filename: str = "unknown"):
 
 
 def search_vector_store(query: str, top_k: int = 10):
+    """
+    Search across ALL uploaded documents.
+    """
 
     if not os.path.exists(INDEX_PATH):
         raise FileNotFoundError(
@@ -133,6 +155,11 @@ def search_vector_store(query: str, top_k: int = 10):
             "Text chunks not found. Please upload a document first."
         )
 
+    if not os.path.exists(METADATA_PATH):
+        raise FileNotFoundError(
+            "Metadata not found. Please rebuild the vector store."
+        )
+
     index = faiss.read_index(INDEX_PATH)
 
     chunks = np.load(
@@ -140,13 +167,10 @@ def search_vector_store(query: str, top_k: int = 10):
         allow_pickle=True
     )
 
-    metadata = []
-
-    if os.path.exists(METADATA_PATH):
-        metadata = np.load(
-            METADATA_PATH,
-            allow_pickle=True
-        )
+    metadata = np.load(
+        METADATA_PATH,
+        allow_pickle=True
+    )
 
     query_embedding = model.encode(
         [query],
@@ -155,9 +179,12 @@ def search_vector_store(query: str, top_k: int = 10):
 
     query_embedding = query_embedding.astype("float32")
 
+    # Never request more results than available vectors
+    actual_top_k = min(top_k, index.ntotal)
+
     distances, indices = index.search(
         query_embedding,
-        top_k
+        actual_top_k
     )
 
     results = []
@@ -170,16 +197,17 @@ def search_vector_store(query: str, top_k: int = 10):
         if index_id == -1:
             continue
 
-        item = {
-            "text": str(chunks[index_id]),
-            "distance": float(distance)
-        }
+        chunk = str(chunks[index_id])
 
-        if len(metadata) > index_id:
-            item["filename"] = metadata[index_id]["filename"]
-        else:
-            item["filename"] = "unknown"
+        meta = metadata[index_id]
 
-        results.append(item)
+        results.append(
+            {
+                "text": chunk,
+                "distance": float(distance),
+                "filename": meta["filename"],
+                "chunk_index": int(meta["chunk_index"])
+            }
+        )
 
     return results
