@@ -5,7 +5,9 @@ import sqlite3
 
 from ollama import chat
 from app.routes.auth import verify_token
-from app.rag.pdf_loader import extract_text_from_pdf
+
+from app.rag.document_loader import extract_text_from_file
+from app.rag.ocr import extract_text_from_image
 from app.rag.vector_store import (
     create_vector_store,
     search_vector_store,
@@ -76,7 +78,7 @@ VALUES (?, ?, ?, CURRENT_TIMESTAMP)        """,
 # ============================================================
 
 @router.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...)):
 
     if not file.filename:
         raise HTTPException(
@@ -84,39 +86,45 @@ async def upload_pdf(file: UploadFile = File(...)):
             detail="File name is required"
         )
 
-    if not file.filename.lower().endswith(".pdf"):
+    allowed_extensions = {
+        ".pdf",
+        ".docx",
+        ".txt",
+        ".csv",
+        ".xls",
+        ".xlsx", ".jpg", ".jpeg", ".png",
+    }
+
+    extension = Path(file.filename).suffix.lower()
+
+    if extension not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail="Only PDF files are allowed"
+            detail="Supported files: PDF, DOCX, TXT, CSV, XLS, XLSX, JPG, JPEG, PNG"
         )
 
     file_path = UPLOAD_DIR / file.filename
 
     try:
-        # Read uploaded PDF
         content = await file.read()
 
-        # Save PDF
         with open(file_path, "wb") as f:
             f.write(content)
 
-        # Extract PDF text
-        text = extract_text_from_pdf(
-            str(file_path)
-        )
+        text = extract_text_from_file(str(file_path))
 
-        if not text:
+        if not text.strip():
             raise HTTPException(
                 status_code=400,
-                detail="No text could be extracted from PDF"
+                detail="No text could be extracted from the file"
             )
 
-        # Create FAISS vector store
-        create_vector_store(text)
+        create_vector_store(text, file.filename)
 
         return {
-            "message": "PDF uploaded successfully",
+            "message": "File uploaded successfully",
             "filename": file.filename,
+            "file_type": extension,
             "characters": len(text)
         }
 
@@ -126,13 +134,9 @@ async def upload_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"PDF upload failed: {str(e)}"
+            detail=f"File upload failed: {str(e)}"
         )
 
-
-# ============================================================
-# VECTOR SEARCH
-# ============================================================
 
 @router.get("/search")
 async def search(query: str):
