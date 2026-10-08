@@ -27,3 +27,11 @@ app/rag/uploads/*.pdf
 
 # OS
 .DS_Store
+
+# RAG generated/test files
+app/rag/metadata.npy
+app/rag/old_index_backup/
+app/rag/uploads/
+app/rag/vector_store.py.backup
+test.png
+test_documents/
