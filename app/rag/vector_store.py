@@ -31,13 +31,17 @@ def create_chunks(text: str, chunk_size: int = 300):
     return chunks
 
 
-def create_vector_store(text: str, filename: str = "unknown"):
+def create_vector_store(
+    text: str,
+    filename: str = "unknown",
+    document_id: int | None = None,
+    user_id: int | None = None,
+):
     """
     Add a document to the existing FAISS index.
 
-    Important:
-    New documents are APPENDED.
-    Existing documents are NOT overwritten.
+    New documents are appended.
+    Existing documents are not overwritten.
     """
 
     chunks = create_chunks(text)
@@ -48,42 +52,24 @@ def create_vector_store(text: str, filename: str = "unknown"):
     embeddings = model.encode(
         chunks,
         convert_to_numpy=True
-    )
-
-    embeddings = embeddings.astype("float32")
+    ).astype("float32")
 
     dimension = embeddings.shape[1]
 
     os.makedirs("app/rag", exist_ok=True)
 
-    # --------------------------------------------------
-    # Load existing FAISS index or create new one
-    # --------------------------------------------------
-
     if os.path.exists(INDEX_PATH):
         index = faiss.read_index(INDEX_PATH)
 
-        # Safety check
         if index.d != dimension:
             raise ValueError(
-                f"FAISS dimension mismatch. "
-                f"Existing: {index.d}, New: {dimension}"
+                f"FAISS dimension mismatch. Existing: {index.d}, New: {dimension}"
             )
-
     else:
         index = faiss.IndexFlatL2(dimension)
 
-    # --------------------------------------------------
-    # Add new embeddings
-    # --------------------------------------------------
-
     index.add(embeddings)
-
     faiss.write_index(index, INDEX_PATH)
-
-    # --------------------------------------------------
-    # Load existing text chunks
-    # --------------------------------------------------
 
     if os.path.exists(TEXT_PATH):
         old_chunks = np.load(
@@ -100,10 +86,6 @@ def create_vector_store(text: str, filename: str = "unknown"):
         np.array(old_chunks, dtype=object)
     )
 
-    # --------------------------------------------------
-    # Load existing metadata
-    # --------------------------------------------------
-
     if os.path.exists(METADATA_PATH):
         old_metadata = np.load(
             METADATA_PATH,
@@ -117,13 +99,12 @@ def create_vector_store(text: str, filename: str = "unknown"):
     new_metadata = []
 
     for i, chunk in enumerate(chunks):
-
-        new_metadata.append(
-            {
-                "filename": filename,
-                "chunk_index": start_chunk_index + i
-            }
-        )
+        new_metadata.append({
+            "filename": filename,
+            "document_id": document_id,
+            "user_id": user_id,
+            "chunk_index": start_chunk_index + i,
+        })
 
     old_metadata.extend(new_metadata)
 
@@ -136,11 +117,17 @@ def create_vector_store(text: str, filename: str = "unknown"):
         "chunks_added": len(chunks),
         "total_chunks": len(old_chunks),
         "dimension": dimension,
-        "filename": filename
+        "filename": filename,
+        "document_id": document_id,
+        "user_id": user_id,
     }
 
 
-def search_vector_store(query: str, top_k: int = 10):
+def search_vector_store(
+    query: str,
+    top_k: int = 10,
+    user_id: int | None = None,
+):
     """
     Search across ALL uploaded documents.
     """
@@ -180,7 +167,7 @@ def search_vector_store(query: str, top_k: int = 10):
     query_embedding = query_embedding.astype("float32")
 
     # Never request more results than available vectors
-    actual_top_k = min(top_k, index.ntotal)
+    actual_top_k = index.ntotal
 
     distances, indices = index.search(
         query_embedding,
@@ -201,13 +188,81 @@ def search_vector_store(query: str, top_k: int = 10):
 
         meta = metadata[index_id]
 
+        # Return only documents belonging to the requested user.
+        if user_id is not None and meta.get("user_id") != user_id:
+            continue
+
         results.append(
             {
                 "text": chunk,
                 "distance": float(distance),
                 "filename": meta["filename"],
+                "document_id": meta.get("document_id"),
+                "user_id": meta.get("user_id"),
                 "chunk_index": int(meta["chunk_index"])
             }
         )
 
     return results
+
+def rebuild_vector_store(documents):
+    """
+    Rebuild FAISS using the remaining document records.
+    Each document must have id, user_id, filename and file_path.
+    """
+    import os
+    from pathlib import Path
+
+    all_chunks = []
+    all_metadata = []
+    all_embeddings = []
+
+    for document in documents:
+        path = Path(document.file_path)
+
+        if not path.exists():
+            continue
+
+        from app.rag.document_loader import extract_text_from_file
+
+        text = extract_text_from_file(str(path))
+        chunks = create_chunks(text)
+
+        if not chunks:
+            continue
+
+        embeddings = model.encode(
+            chunks,
+            convert_to_numpy=True
+        ).astype("float32")
+
+        all_embeddings.append(embeddings)
+
+        for chunk in chunks:
+            all_chunks.append(chunk)
+            all_metadata.append({
+                "filename": document.filename,
+                "document_id": document.id,
+                "user_id": document.user_id,
+                "chunk_index": len(all_metadata),
+            })
+
+    os.makedirs("app/rag", exist_ok=True)
+
+    if all_embeddings:
+        combined_embeddings = np.vstack(all_embeddings)
+        index = faiss.IndexFlatL2(combined_embeddings.shape[1])
+        index.add(combined_embeddings)
+        faiss.write_index(index, INDEX_PATH)
+    else:
+        for path in (INDEX_PATH,):
+            if os.path.exists(path):
+                os.remove(path)
+
+    np.save(TEXT_PATH, np.array(all_chunks, dtype=object))
+    np.save(METADATA_PATH, np.array(all_metadata, dtype=object))
+
+    return {
+        "total_chunks": len(all_chunks),
+        "total_documents": len(documents),
+    }
