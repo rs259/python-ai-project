@@ -468,30 +468,3 @@ async def delete_document(
 
     finally:
         db.close()
-
-@router.get("/documents")
-async def list_documents(user_id: int = Depends(verify_token)):
-    db = SessionLocal()
-    try:
-        documents = (
-            db.query(Document)
-            .filter(Document.user_id == user_id)
-            .order_by(Document.id.desc())
-            .all()
-        )
-
-        return {
-            "total": len(documents),
-            "documents": [
-                {
-                    "id": doc.id,
-                    "filename": doc.filename,
-                    "file_type": doc.file_type,
-                    "created_at": doc.created_at.isoformat()
-                    if doc.created_at else None,
-                }
-                for doc in documents
-            ],
-        }
-    finally:
-        db.close()
