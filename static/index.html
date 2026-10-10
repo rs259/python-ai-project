@@ -121,7 +121,7 @@
             </button>
 
             <button onclick="showSection('uploadSection')">
-                📄 Upload PDF
+                📄 Upload Document
             </button>
 
             <button onclick="showSection('historySection')">
@@ -172,7 +172,7 @@
             <!-- UPLOAD -->
             <div id="uploadSection" class="section hidden">
 
-                <h1>Upload PDF</h1>
+                <h1>Upload Document</h1>
 
                 <p>
                     Upload a PDF document for RAG search.
@@ -183,11 +183,10 @@
                     <input
                         type="file"
                         id="pdfFile"
-                        accept=".pdf"
-                    >
+                        accept=".pdf,.docx,.txt,.csv,.xls,.xlsx,.jpg,.jpeg,.png"                    >
 
                     <button onclick="uploadPDF()">
-                        Upload PDF
+                        Upload Document
                     </button>
 
                 </div>

@@ -294,15 +294,21 @@ async function uploadPDF() {
 
     const file = fileInput.files[0];
 
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
+const allowedExtensions = [
+    ".pdf", ".docx", ".txt", ".csv",
+    ".xls", ".xlsx", ".jpg", ".jpeg", ".png"
+];
 
-        message.style.color = "red";
-        message.textContent =
-            "Only PDF files are allowed.";
+const extension = file.name
+    .toLowerCase()
+    .slice(file.name.lastIndexOf("."));
 
-        return;
-    }
-
+if (!allowedExtensions.includes(extension)) {
+    message.style.color = "red";
+    message.textContent =
+        "Supported files: PDF, DOCX, TXT, CSV, XLS, XLSX, JPG, JPEG, PNG.";
+    return;
+}
     const formData = new FormData();
 
     formData.append("file", file);
@@ -335,6 +341,7 @@ async function uploadPDF() {
         message.textContent =
             `✅ ${data.message} (${data.characters} characters)`;
 
+        await loadDocuments();
         fileInput.value = "";
 
     } catch (error) {
