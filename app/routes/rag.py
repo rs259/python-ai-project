@@ -5,12 +5,15 @@ import sqlite3
 
 from ollama import chat
 from app.routes.auth import verify_token
-from app.rag.pdf_loader import extract_text_from_pdf
+from app.database import SessionLocal
+from app.models.document import Document
+from app.rag.document_loader import extract_text_from_file
+from app.rag.ocr import extract_text_from_image
 from app.rag.vector_store import (
     create_vector_store,
     search_vector_store,
+    rebuild_vector_store,
 )
-
 router = APIRouter(
     prefix="/rag",
     tags=["RAG"]
@@ -76,48 +79,83 @@ VALUES (?, ?, ?, CURRENT_TIMESTAMP)        """,
 # ============================================================
 
 @router.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-
+async def upload_file(
+    file: UploadFile = File(...),
+    user_id: int = Depends(verify_token)
+):
     if not file.filename:
         raise HTTPException(
             status_code=400,
             detail="File name is required"
         )
 
-    if not file.filename.lower().endswith(".pdf"):
+    allowed_extensions = {
+        ".pdf",
+        ".docx",
+        ".txt",
+        ".csv",
+        ".xls",
+        ".xlsx",
+        ".jpg",
+        ".jpeg",
+        ".png",
+    }
+
+    extension = Path(file.filename).suffix.lower()
+
+    if extension not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail="Only PDF files are allowed"
+            detail="Supported files: PDF, DOCX, TXT, CSV, XLS, XLSX, JPG, JPEG, PNG"
         )
 
     file_path = UPLOAD_DIR / file.filename
 
     try:
-        # Read uploaded PDF
         content = await file.read()
 
-        # Save PDF
         with open(file_path, "wb") as f:
             f.write(content)
 
-        # Extract PDF text
-        text = extract_text_from_pdf(
-            str(file_path)
-        )
+        text = extract_text_from_file(str(file_path))
 
-        if not text:
+        if not text.strip():
             raise HTTPException(
                 status_code=400,
-                detail="No text could be extracted from PDF"
+                detail="No text could be extracted from the file"
             )
 
-        # Create FAISS vector store
-        create_vector_store(text)
+
+        db = SessionLocal()
+
+        try:
+            document = Document(
+                user_id=user_id,
+                filename=file.filename,
+                file_type=extension,
+                file_path=str(file_path)
+            )
+
+            db.add(document)
+            db.commit()
+            db.refresh(document)
+
+            create_vector_store(
+                text,
+                file.filename,
+                document_id=document.id,
+                user_id=user_id,
+            )
+
+        finally:
+            db.close()
 
         return {
-            "message": "PDF uploaded successfully",
+            "message": "File uploaded successfully",
             "filename": file.filename,
-            "characters": len(text)
+            "file_type": extension,
+            "characters": len(text),
+            "document_id": document.id
         }
 
     except HTTPException:
@@ -126,16 +164,12 @@ async def upload_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"PDF upload failed: {str(e)}"
+            detail=f"File upload failed: {str(e)}"
         )
 
 
-# ============================================================
-# VECTOR SEARCH
-# ============================================================
-
 @router.get("/search")
-async def search(query: str):
+async def search(query: str, user_id: int = Depends(verify_token)):
 
     if not query.strip():
         raise HTTPException(
@@ -145,7 +179,7 @@ async def search(query: str):
 
     try:
 
-        results = search_vector_store(query)
+        results = search_vector_store(query, user_id=user_id)
 
         return {
             "query": query,
@@ -185,7 +219,7 @@ async def ask(
 
     try:
 
-        results = search_vector_store(query)
+        results = search_vector_store(query, user_id=user_id)
 
     except Exception as e:
 
@@ -365,3 +399,72 @@ async def chat_history(current_user: dict = Depends(get_current_user)):
             status_code=500,
             detail=f"Chat history fetch failed: {str(e)}"
         )
+@router.get("/documents")
+async def get_documents(
+    user_id: int = Depends(verify_token)
+):
+    db = SessionLocal()
+
+    try:
+        documents = (
+            db.query(Document)
+            .filter(Document.user_id == user_id)
+            .order_by(Document.created_at.desc())
+            .all()
+        )
+
+        return [
+            {
+                "id": doc.id,
+                "filename": doc.filename,
+                "file_type": doc.file_type,
+                "file_path": doc.file_path,
+                "created_at": doc.created_at,
+            }
+            for doc in documents
+        ]
+
+    finally:
+        db.close()
+
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(
+    document_id: int,
+    user_id: int = Depends(verify_token)
+):
+    db = SessionLocal()
+
+    try:
+        document = (
+            db.query(Document)
+            .filter(
+                Document.id == document_id,
+                Document.user_id == user_id
+            )
+            .first()
+        )
+
+        if not document:
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found"
+            )
+
+        file_path = Path(document.file_path)
+
+        if file_path.exists():
+            file_path.unlink()
+
+        db.delete(document)
+        db.commit()
+        remaining_documents = db.query(Document).all()
+        rebuild_vector_store(remaining_documents)
+        return {
+            "message": "Document deleted successfully",
+            "document_id": document_id
+        }
+
+    finally:
+        db.close()

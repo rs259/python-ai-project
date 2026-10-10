@@ -27,3 +27,25 @@ app/rag/uploads/*.pdf
 
 # OS
 .DS_Store
+
+# RAG generated/test files
+app/rag/metadata.npy
+app/rag/old_index_backup/
+app/rag/uploads/
+app/rag/vector_store.py.backup
+test.png
+test_documents/
+
+app/rag/vector_store.single_backup.py
+
+# Local backup files
+backups/
+*.before-migration.*
+*.before-delete-*.py
+app/routes/rag.py.before-fix
+app/rag/vector_store.py.backup
+app/rag/vector_store.single_backup.py
+
+# Temporary Python backups
+app/rag/vector_store.before-*.py
+app/routes/rag.py.before-*.py

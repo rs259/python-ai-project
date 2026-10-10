@@ -529,3 +529,76 @@ window.addEventListener("load", function() {
     }
 
 });
+
+// ================================
+// UPLOADED DOCUMENTS
+// ================================
+
+async function loadDocuments() {
+    const list = document.getElementById("documentsList");
+    if (!list) return;
+
+    list.textContent = "Loading documents...";
+
+    try {
+        const response = await fetch("/rag/documents", {
+            headers: authHeaders()
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || "Could not load documents");
+        }
+
+        const documents = Array.isArray(data) ? data : (data.documents || []);
+        list.replaceChildren();
+
+        if (documents.length === 0) {
+            list.textContent = "No documents uploaded yet.";
+            return;
+        }
+
+        documents.forEach((doc) => {
+            const item = document.createElement("div");
+            item.className = "document-item";
+
+            const name = document.createElement("span");
+            name.textContent = `${doc.filename} (${doc.file_type || "file"})`;
+
+            const remove = document.createElement("button");
+            remove.textContent = "Delete";
+            remove.type = "button";
+            remove.onclick = () => deleteDocument(doc.id);
+
+            item.append(name, remove);
+            list.appendChild(item);
+        });
+    } catch (error) {
+        list.textContent = "Error: " + error.message;
+    }
+}
+
+async function deleteDocument(id) {
+    if (!confirm("Are you sure you want to delete this document?")) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/rag/documents/${id}`, {
+            method: "DELETE",
+            headers: authHeaders()
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || "Document deletion failed");
+        }
+
+        alert(data.message || "Document deleted successfully");
+        await loadDocuments();
+    } catch (error) {
+        alert("Error: " + error.message);
+    }
+}
