@@ -167,8 +167,7 @@ def search_vector_store(
     query_embedding = query_embedding.astype("float32")
 
     # Never request more results than available vectors
-    actual_top_k = index.ntotal
-
+    actual_top_k = min(top_k, index.ntotal)
     distances, indices = index.search(
         query_embedding,
         actual_top_k

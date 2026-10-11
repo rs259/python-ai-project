@@ -140,12 +140,9 @@ async def upload_file(
             db.commit()
             db.refresh(document)
 
-            create_vector_store(
-                text,
-                file.filename,
-                document_id=document.id,
-                user_id=user_id,
-            )
+            # Rebuild the index from every saved document.
+            remaining_documents = db.query(Document).all()
+            rebuild_vector_store(remaining_documents)
 
         finally:
             db.close()
@@ -418,7 +415,6 @@ async def get_documents(
                 "id": doc.id,
                 "filename": doc.filename,
                 "file_type": doc.file_type,
-                "file_path": doc.file_path,
                 "created_at": doc.created_at,
             }
             for doc in documents
@@ -452,15 +448,24 @@ async def delete_document(
                 detail="Document not found"
             )
 
-        file_path = Path(document.file_path)
+        file_path = Path(document.file_path).resolve()
+        upload_dir = UPLOAD_DIR.resolve()
 
-        if file_path.exists():
+        if not file_path.is_relative_to(upload_dir):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid document file path"
+            )
+
+        if file_path.is_file():
             file_path.unlink()
 
         db.delete(document)
         db.commit()
+
         remaining_documents = db.query(Document).all()
         rebuild_vector_store(remaining_documents)
+
         return {
             "message": "Document deleted successfully",
             "document_id": document_id

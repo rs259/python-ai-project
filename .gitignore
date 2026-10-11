@@ -49,3 +49,8 @@ app/rag/vector_store.single_backup.py
 # Temporary Python backups
 app/rag/vector_store.before-*.py
 app/routes/rag.py.before-*.py
+
+# Local code backups
+app/rag/vector_store.py.pre-final-backup
+app/routes/rag.py.backup
+app/routes/rag.py.pre-index-fix.backup
