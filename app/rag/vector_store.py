@@ -13,23 +13,32 @@ METADATA_PATH = "app/rag/metadata.npy"
 model = SentenceTransformer(MODEL_NAME)
 
 
-def create_chunks(text: str, chunk_size: int = 300):
-    """
-    Split document text into small chunks.
-    """
+def create_chunks(text: str, chunk_size: int = 80):
+    """Split text into country-level sections and smaller chunks."""
+    import re
 
-    words = text.split()
+    text = text.strip()
+    if not text:
+        return []
+
+    # Start a new section at each Country: heading.
+    sections = re.split(r"(?=Country:\s*)", text)
 
     chunks = []
 
-    for i in range(0, len(words), chunk_size):
-        chunk = " ".join(words[i:i + chunk_size])
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
 
-        if chunk.strip():
-            chunks.append(chunk)
+        words = section.split()
+
+        for i in range(0, len(words), chunk_size):
+            chunk = " ".join(words[i:i + chunk_size]).strip()
+            if chunk:
+                chunks.append(chunk)
 
     return chunks
-
 
 def create_vector_store(
     text: str,
@@ -125,104 +134,83 @@ def create_vector_store(
 
 def search_vector_store(
     query: str,
-    top_k: int = 10,
+    top_k: int = 3,
     user_id: int | None = None,
 ):
-    """
-    Search across ALL uploaded documents.
-    """
+    """Search FAISS and return the best matching chunks for a user."""
 
-    if not os.path.exists(INDEX_PATH):
-        raise FileNotFoundError(
-            "FAISS index not found. Please upload a document first."
-        )
+    if user_id is None:
+        raise ValueError("user_id is required for document search.")
 
-    if not os.path.exists(TEXT_PATH):
-        raise FileNotFoundError(
-            "Text chunks not found. Please upload a document first."
-        )
-
-    if not os.path.exists(METADATA_PATH):
-        raise FileNotFoundError(
-            "Metadata not found. Please rebuild the vector store."
-        )
+    for required_path, message in (
+        (INDEX_PATH, "FAISS index not found. Please upload a document first."),
+        (TEXT_PATH, "Text chunks not found. Please upload a document first."),
+        (METADATA_PATH, "Metadata not found. Please rebuild the vector store."),
+    ):
+        if not os.path.exists(required_path):
+            raise FileNotFoundError(message)
 
     index = faiss.read_index(INDEX_PATH)
+    chunks = np.load(TEXT_PATH, allow_pickle=True)
+    metadata = np.load(METADATA_PATH, allow_pickle=True)
 
-    chunks = np.load(
-        TEXT_PATH,
-        allow_pickle=True
-    )
+    if index.ntotal != len(chunks) or index.ntotal != len(metadata):
+        raise ValueError("FAISS index, chunks and metadata counts do not match.")
 
-    metadata = np.load(
-        METADATA_PATH,
-        allow_pickle=True
-    )
+    if index.ntotal == 0:
+        return []
 
     query_embedding = model.encode(
         [query],
         convert_to_numpy=True
-    )
+    ).astype("float32")
 
-    query_embedding = query_embedding.astype("float32")
-
-    # Never request more results than available vectors
-    actual_top_k = min(top_k, index.ntotal)
-    distances, indices = index.search(
-        query_embedding,
-        actual_top_k
-    )
+    distances, indices = index.search(query_embedding, index.ntotal)
 
     results = []
-
-    for distance, index_id in zip(
-        distances[0],
-        indices[0]
-    ):
-
-        if index_id == -1:
+    for distance, index_id in zip(distances[0], indices[0]):
+        if index_id < 0:
             continue
-
-        chunk = str(chunks[index_id])
 
         meta = metadata[index_id]
 
-        # Return only documents belonging to the requested user.
-        if user_id is not None and meta.get("user_id") != user_id:
+        if meta.get("user_id") != user_id:
             continue
 
-        results.append(
-            {
-                "text": chunk,
-                "distance": float(distance),
-                "filename": meta["filename"],
-                "document_id": meta.get("document_id"),
-                "user_id": meta.get("user_id"),
-                "chunk_index": int(meta["chunk_index"])
-            }
-        )
+        results.append({
+            "text": str(chunks[index_id]),
+            "distance": float(distance),
+            "filename": meta["filename"],
+            "document_id": meta.get("document_id"),
+            "user_id": meta.get("user_id"),
+            "chunk_index": int(meta["chunk_index"]),
+        })
 
-    return results
+    results.sort(key=lambda item: item["distance"])
+    return results[:max(1, top_k)]
+
 
 def rebuild_vector_store(documents):
-    """
-    Rebuild FAISS using the remaining document records.
-    Each document must have id, user_id, filename and file_path.
-    """
+    """Rebuild FAISS, indexing each existing physical file only once."""
     import os
     from pathlib import Path
+    from app.rag.document_loader import extract_text_from_file
 
     all_chunks = []
     all_metadata = []
     all_embeddings = []
+    seen_paths = set()
+    indexed_documents = 0
 
     for document in documents:
-        path = Path(document.file_path)
+        path = Path(document.file_path).resolve()
 
-        if not path.exists():
+        if path in seen_paths:
             continue
+        seen_paths.add(path)
 
-        from app.rag.document_loader import extract_text_from_file
+        if not path.is_file():
+            continue
 
         text = extract_text_from_file(str(path))
         chunks = create_chunks(text)
@@ -236,6 +224,7 @@ def rebuild_vector_store(documents):
         ).astype("float32")
 
         all_embeddings.append(embeddings)
+        indexed_documents += 1
 
         for chunk in chunks:
             all_chunks.append(chunk)
@@ -253,15 +242,13 @@ def rebuild_vector_store(documents):
         index = faiss.IndexFlatL2(combined_embeddings.shape[1])
         index.add(combined_embeddings)
         faiss.write_index(index, INDEX_PATH)
-    else:
-        for path in (INDEX_PATH,):
-            if os.path.exists(path):
-                os.remove(path)
+    elif os.path.exists(INDEX_PATH):
+        os.remove(INDEX_PATH)
 
     np.save(TEXT_PATH, np.array(all_chunks, dtype=object))
     np.save(METADATA_PATH, np.array(all_metadata, dtype=object))
 
     return {
         "total_chunks": len(all_chunks),
-        "total_documents": len(documents),
+        "total_documents": indexed_documents,
     }

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pathlib import Path
 import sqlite3
-
+import uuid
 from ollama import chat
 from app.routes.auth import verify_token
 from app.database import SessionLocal
@@ -109,8 +109,9 @@ async def upload_file(
             detail="Supported files: PDF, DOCX, TXT, CSV, XLS, XLSX, JPG, JPEG, PNG"
         )
 
-    file_path = UPLOAD_DIR / file.filename
-
+    safe_filename = Path(file.filename).name
+    unique_filename = f"{uuid.uuid4().hex}_{safe_filename}"
+    file_path = UPLOAD_DIR / unique_filename
     try:
         content = await file.read()
 
@@ -457,12 +458,23 @@ async def delete_document(
                 detail="Invalid document file path"
             )
 
-        if file_path.is_file():
-            file_path.unlink()
+        # Remember the path before deleting the database record.
+        old_file_path = str(file_path)
 
         db.delete(document)
         db.commit()
 
+        # Delete the physical file only if no records still use it.
+        other_records = (
+            db.query(Document)
+            .filter(Document.file_path == old_file_path)
+            .count()
+        )
+
+        if other_records == 0 and file_path.is_file():
+            file_path.unlink()
+
+        # Rebuild the index using all remaining users' documents.
         remaining_documents = db.query(Document).all()
         rebuild_vector_store(remaining_documents)
 
@@ -471,5 +483,13 @@ async def delete_document(
             "document_id": document_id
         }
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Document deletion failed: {str(e)}"
+        )
     finally:
         db.close()

@@ -54,3 +54,11 @@ app/routes/rag.py.before-*.py
 app/rag/vector_store.py.pre-final-backup
 app/routes/rag.py.backup
 app/routes/rag.py.pre-index-fix.backup
+
+# Local debugging backups
+*.before-chunk-fix
+*.before-dedup
+*.before-search-fix
+*.before-unique-files
+*.before-delete
+*.backup
