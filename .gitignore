@@ -62,3 +62,5 @@ app/routes/rag.py.pre-index-fix.backup
 *.before-unique-files
 *.before-delete
 *.backup
+app/rag/vector_store.py.before-threshold
+app/rag/vector_store.py.before-threshold

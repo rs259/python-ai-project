@@ -214,9 +214,17 @@ def search_vector_store(
             "chunk_index": int(meta["chunk_index"]),
         })
 
-    results.sort(key=lambda item: item["distance"])
-    return results[:max(1, top_k)]
 
+    results.sort(key=lambda item: item["distance"])
+
+    # Reject weak matches
+    MAX_DISTANCE = 1.30
+    results = [
+        item for item in results
+        if item["distance"] <= MAX_DISTANCE
+    ]
+
+    return results[:max(1, top_k)]
 
 def rebuild_vector_store(documents):
     """Rebuild FAISS, indexing each existing physical file only once."""

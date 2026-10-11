@@ -230,13 +230,27 @@ async def ask(
     # Step 2: Check results
     # --------------------------------------------------------
 
+
     if not results:
+        answer = "I could not find the answer in the uploaded document."
 
-        raise HTTPException(
-            status_code=404,
-            detail="No relevant documents found"
-        )
+        try:
+            save_chat_history(
+                user_id=user_id,
+                query=query,
+                answer=answer
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Chat history save failed: {str(e)}"
+            )
 
+        return {
+            "query": query,
+            "answer": answer,
+            "sources": []
+        }
     # --------------------------------------------------------
     # Step 3: Build context
     # --------------------------------------------------------
