@@ -13,18 +13,46 @@ METADATA_PATH = "app/rag/metadata.npy"
 model = SentenceTransformer(MODEL_NAME)
 
 
+
 def create_chunks(text: str, chunk_size: int = 80):
-    """Split text into country-level sections and smaller chunks."""
+    """Split country records into individual chunks; chunk other text by words."""
+    import csv
+    import io
     import re
 
     text = text.strip()
     if not text:
         return []
 
-    # Start a new section at each Country: heading.
-    sections = re.split(r"(?=Country:\s*)", text)
-
+    lines = text.splitlines()
     chunks = []
+
+    # Detect CSV-style country tables.
+    if (
+        lines
+        and "Country" in lines[0]
+        and "Currency" in lines[0]
+        and "," in lines[0]
+    ):
+        try:
+            rows = list(csv.DictReader(io.StringIO(text)))
+
+            if rows:
+                for row in rows:
+                    record = ", ".join(
+                        f"{key.strip()}: {value.strip()}"
+                        for key, value in row.items()
+                        if key and value and value.strip()
+                    )
+                    if record:
+                        chunks.append(record)
+
+                return chunks
+        except (csv.Error, AttributeError):
+            pass
+
+    # Split text containing Country: headings into separate sections.
+    sections = re.split(r"(?=Country:\s*)", text)
 
     for section in sections:
         section = section.strip()
