@@ -218,7 +218,7 @@ def search_vector_store(
     results.sort(key=lambda item: item["distance"])
 
     # Reject weak matches
-    MAX_DISTANCE = 1.30
+    MAX_DISTANCE = 1.00
     results = [
         item for item in results
         if item["distance"] <= MAX_DISTANCE

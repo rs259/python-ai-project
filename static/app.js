@@ -443,3 +443,61 @@ async function loadDocuments() {
         console.error("loadDocuments error:", error);
     }
 }
+
+async function loadHistory() {
+    const list = document.getElementById("historyList");
+
+    if (!list) {
+        console.error("historyList element not found");
+        return;
+    }
+
+    list.textContent = "Loading...";
+
+    try {
+        const response = await fetch(`${API}/rag/history`, {
+            method: "GET",
+            headers: authHeaders()
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || "Could not load chat history");
+        }
+
+        const history = Array.isArray(data)
+            ? data
+            : (data.history || []);
+
+        list.replaceChildren();
+
+        if (history.length === 0) {
+            list.textContent = "No chat history found.";
+            return;
+        }
+
+        history.forEach(chat => {
+            const item = document.createElement("div");
+            item.className = "history-item";
+
+            const question = document.createElement("p");
+            question.textContent = `Question: ${chat.query || ""}`;
+
+            const answer = document.createElement("p");
+            answer.textContent = `Answer: ${chat.answer || ""}`;
+
+            const date = document.createElement("small");
+            date.textContent = chat.created_at
+                ? `Date: ${chat.created_at}`
+                : "";
+
+            item.append(question, answer, date);
+            list.appendChild(item);
+        });
+
+    } catch (error) {
+        list.textContent = `Could not load history: ${error.message}`;
+        console.error("loadHistory error:", error);
+    }
+}
