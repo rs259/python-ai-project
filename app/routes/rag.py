@@ -22,13 +22,12 @@ router = APIRouter(
 # ============================================================
 # CONFIGURATION
 # ============================================================
-
+VECTOR_BUNDLE_PATH = Path("app/rag/vector_store.npz")
 UPLOAD_DIR = Path("app/rag/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 DATABASE = "app.db"
 OLLAMA_MODEL = "llama3.2"
-
 
 # ============================================================
 # CHAT HISTORY TABLE
@@ -81,89 +80,128 @@ VALUES (?, ?, ?, CURRENT_TIMESTAMP)        """,
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
-    user_id: int = Depends(verify_token)
+    user_id: int = Depends(verify_token),
 ):
     if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="File name is required"
-        )
+        raise HTTPException(status_code=400, detail="File name is required")
 
     allowed_extensions = {
-        ".pdf",
-        ".docx",
-        ".txt",
-        ".csv",
-        ".xls",
-        ".xlsx",
-        ".jpg",
-        ".jpeg",
-        ".png",
+        ".pdf", ".docx", ".txt", ".csv", ".xls", ".xlsx",
+        ".jpg", ".jpeg", ".png",
     }
-
     extension = Path(file.filename).suffix.lower()
 
     if extension not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail="Supported files: PDF, DOCX, TXT, CSV, XLS, XLSX, JPG, JPEG, PNG"
+            detail="Supported files: PDF, DOCX, TXT, CSV, XLS, XLSX, JPG, JPEG, PNG",
         )
 
     safe_filename = Path(file.filename).name
-    unique_filename = f"{uuid.uuid4().hex}_{safe_filename}"
-    file_path = UPLOAD_DIR / unique_filename
+    file_path = UPLOAD_DIR / f"{uuid.uuid4().hex}_{safe_filename}"
+    db = None
+    bundle_path = Path("app/rag/vector_store.npz")
+    bundle_backup = None
+    document = None
+    committed = False
+    rebuild_succeeded = False
+
+    import os
+    import shutil
+    import tempfile
+
     try:
         content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-        with open(file_path, "wb") as f:
-            f.write(content)
+        file_path.write_bytes(content)
 
         text = extract_text_from_file(str(file_path))
-
-        if not text.strip():
+        if not text or not text.strip():
             raise HTTPException(
                 status_code=400,
-                detail="No text could be extracted from the file"
+                detail="No text could be extracted from the file",
             )
 
+        if not bundle_path.exists():
+            raise HTTPException(
+                status_code=500,
+                detail="Vector bundle is missing; upload cancelled",
+            )
+
+        fd, backup_name = tempfile.mkstemp(
+            prefix="upload_backup_", suffix=".npz", dir=str(bundle_path.parent)
+        )
+        os.close(fd)
+        bundle_backup = Path(backup_name)
+        shutil.copy2(bundle_path, bundle_backup)
 
         db = SessionLocal()
+        document = Document(
+            user_id=user_id,
+            filename=file.filename,
+            file_type=extension,
+            file_path=str(file_path),
+        )
+        db.add(document)
+        db.flush()
 
-        try:
-            document = Document(
-                user_id=user_id,
-                filename=file.filename,
-                file_type=extension,
-                file_path=str(file_path)
-            )
+        # Mark rebuild as in-progress before publishing can occur.
+        # If rebuilding fails after publishing, restore the previous bundle.
+        rebuild_succeeded = True
+        rebuild_vector_store(db.query(Document).all())
 
-            db.add(document)
-            db.commit()
-            db.refresh(document)
-
-            # Rebuild the index from every saved document.
-            remaining_documents = db.query(Document).all()
-            rebuild_vector_store(remaining_documents)
-
-        finally:
-            db.close()
+        db.commit()
+        committed = True
 
         return {
             "message": "File uploaded successfully",
             "filename": file.filename,
             "file_type": extension,
             "characters": len(text),
-            "document_id": document.id
+            "document_id": document.id,
         }
 
     except HTTPException:
+        if db is not None and not committed:
+            db.rollback()
+
+        if not committed and rebuild_succeeded and bundle_backup and bundle_backup.exists():
+            os.replace(bundle_backup, bundle_path)
+            bundle_backup = None
+
+        if file_path.exists():
+            file_path.unlink(missing_ok=True)
         raise
 
-    except Exception as e:
+    except Exception as error:
+        if db is not None and not committed:
+            db.rollback()
+
+        if not committed and rebuild_succeeded and bundle_backup and bundle_backup.exists():
+            try:
+                os.replace(bundle_backup, bundle_path)
+                bundle_backup = None
+            except OSError as restore_error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Upload failed and FAISS restore failed: {restore_error}",
+                )
+
+        if file_path.exists():
+            file_path.unlink(missing_ok=True)
+
         raise HTTPException(
             status_code=500,
-            detail=f"File upload failed: {str(e)}"
+            detail=f"File upload failed: {error}",
         )
+
+    finally:
+        if db is not None:
+            db.close()
+        if committed and bundle_backup and bundle_backup.exists():
+            bundle_backup.unlink(missing_ok=True)
 
 
 @router.get("/search")
@@ -291,28 +329,26 @@ async def ask(
     # Step 5: Create LLM prompt
     # --------------------------------------------------------
 
+
     prompt = f"""
-You are a helpful AI assistant.
+You are a document question-answering assistant.
 
-Answer the user's question using ONLY the information
-provided in the context below.
+Use ONLY the supplied context to answer the user's question.
+Read the context carefully and identify the exact fact requested.
 
-If the answer is not available in the context,
-say:
-
-"I could not find the answer in the uploaded document."
-
-Do not invent information.
-
-Keep the answer clear and concise.
+Rules:
+- If the context says the framework is FastAPI, answer FastAPI.
+- If the context says the vector search library is FAISS, answer FAISS.
+- If the answer is present, never say it is missing.
+- Do not guess or add outside information.
+- Give a direct answer in one or two sentences.
+- Only if the answer is genuinely absent, say:
+  "I could not find the answer in the uploaded document."
 
 Context:
---------------------
 {context}
---------------------
 
-User Question:
-{query}
+Question: {query}
 
 Answer:
 """
@@ -443,24 +479,35 @@ async def get_documents(
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: int,
-    user_id: int = Depends(verify_token)
+    user_id: int = Depends(verify_token),
 ):
+    import os
+    import shutil
+    import tempfile
+
     db = SessionLocal()
+    bundle_path = VECTOR_BUNDLE_PATH
+    bundle_backup = None
+    old_values = None
+    file_path = None
+    old_file_path = None
+    deletion_committed = False
+    rebuild_succeeded = False
 
     try:
         document = (
             db.query(Document)
             .filter(
                 Document.id == document_id,
-                Document.user_id == user_id
+                Document.user_id == user_id,
             )
             .first()
         )
 
-        if not document:
+        if document is None:
             raise HTTPException(
                 status_code=404,
-                detail="Document not found"
+                detail="Document not found",
             )
 
         file_path = Path(document.file_path).resolve()
@@ -469,16 +516,42 @@ async def delete_document(
         if not file_path.is_relative_to(upload_dir):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid document file path"
+                detail="Invalid document file path",
             )
 
-        # Remember the path before deleting the database record.
-        old_file_path = str(file_path)
+        old_file_path = document.file_path
 
+        if not bundle_path.exists():
+            raise HTTPException(
+                status_code=500,
+                detail="Vector bundle is missing; deletion cancelled",
+            )
+
+        fd, backup_name = tempfile.mkstemp(
+            prefix="delete_backup_",
+            suffix=".npz",
+            dir=str(bundle_path.parent),
+        )
+        os.close(fd)
+        bundle_backup = Path(backup_name)
+        shutil.copy2(bundle_path, bundle_backup)
+
+        # Stage database deletion without committing.
         db.delete(document)
-        db.commit()
+        db.flush()
 
-        # Delete the physical file only if no records still use it.
+        # Rebuild and atomically publish the new FAISS bundle.
+        rebuild_succeeded = True
+
+        rebuild_vector_store(
+            db.query(Document).all(),
+            bundle_path=str(bundle_path),
+        )
+        # Commit database only after a successful rebuild.
+        db.commit()
+        deletion_committed = True
+
+        # Remove the uploaded file only after both operations succeed.
         other_records = (
             db.query(Document)
             .filter(Document.file_path == old_file_path)
@@ -486,24 +559,69 @@ async def delete_document(
         )
 
         if other_records == 0 and file_path.is_file():
-            file_path.unlink()
-
-        # Rebuild the index using all remaining users' documents.
-        remaining_documents = db.query(Document).all()
-        rebuild_vector_store(remaining_documents)
+            try:
+                file_path.unlink()
+            except OSError:
+                # The database and index are updated; orphan cleanup
+                # can be retried separately.
+                pass
 
         return {
             "message": "Document deleted successfully",
-            "document_id": document_id
+            "document_id": document_id,
         }
 
     except HTTPException:
+        if not deletion_committed:
+            db.rollback()
+
+        if not deletion_committed and rebuild_succeeded and bundle_backup and bundle_backup.exists():
+            try:
+                os.replace(bundle_backup, bundle_path)
+                bundle_backup = None
+            except OSError as restore_error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Request failed and FAISS restoration failed. "
+                        "Keep the backup and inspect database/index state. "
+                        f"Restore error: {restore_error}"
+                    ),
+                )
+
         raise
-    except Exception as e:
-        db.rollback()
+    except Exception as error:
+        if not deletion_committed:
+            db.rollback()
+
+        # Restore only if the DB commit did not succeed.
+        if not deletion_committed and rebuild_succeeded and bundle_backup and bundle_backup.exists():
+            try:
+                os.replace(bundle_backup, bundle_path)
+                bundle_backup = None
+            except OSError as restore_error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Deletion failed and FAISS restoration failed. "
+                        "Keep the backup and inspect database/index state. "
+                        f"Restore error: {restore_error}"
+                    ),
+                )
+
         raise HTTPException(
             status_code=500,
-            detail=f"Document deletion failed: {str(e)}"
+            detail=f"Document deletion failed: {error}",
         )
+
+
     finally:
         db.close()
+
+        # Delete backup only after successful database commit.
+        if (
+            deletion_committed
+            and bundle_backup
+            and bundle_backup.exists()
+        ):
+            bundle_backup.unlink(missing_ok=True)

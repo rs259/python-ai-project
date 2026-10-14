@@ -1,24 +1,36 @@
-venv/
-__pycache__/
-*.pyc
-app.db
-app.db.backup
-.env
 # Python
 __pycache__/
 *.py[cod]
 *.so
 
-# Virtual environment
+# Virtual environment and secrets
 venv/
 .env
 
-# RAG generated files
+# Local database and backups
+app.db
+app.db-*
+app.db.backup
+backups/
+
+# RAG generated files and uploaded documents
 app/rag/faiss.index
 app/rag/text_chunks.npy
-app/rag/uploads/*.pdf
+app/rag/metadata.npy
+app/rag/vector_store.npz
+app/rag/uploads/
 
-# Local Ollama
+# Local RAG backup directories
+app/rag/old_index_backup/
+app/rag/pre-atomic-backup/
+app/rag/safety-backup/
+
+# Explicit local backup files
+.gitignore.before-cleanup
+app/rag/vector_store.py.pre-final-backup
+app/rag/vector_store.single_backup.py
+
+# Local model files
 .ollama/
 
 # IDE
@@ -28,39 +40,20 @@ app/rag/uploads/*.pdf
 # OS
 .DS_Store
 
-# RAG generated/test files
-app/rag/metadata.npy
-app/rag/old_index_backup/
-app/rag/uploads/
-app/rag/vector_store.py.backup
+# Test and debug files
 test.png
 test_documents/
 
-app/rag/vector_store.single_backup.py
-
-# Local backup files
-backups/
-*.before-migration.*
-*.before-delete-*.py
-app/routes/rag.py.before-fix
-app/rag/vector_store.py.backup
-app/rag/vector_store.single_backup.py
-
-# Temporary Python backups
-app/rag/vector_store.before-*.py
-app/routes/rag.py.before-*.py
-
-# Local code backups
-app/rag/vector_store.py.pre-final-backup
-app/routes/rag.py.backup
-app/routes/rag.py.pre-index-fix.backup
-
-# Local debugging backups
-*.before-chunk-fix
-*.before-dedup
-*.before-search-fix
-*.before-unique-files
-*.before-delete
-*.backup
-app/rag/vector_store.py.before-threshold
-app/rag/vector_store.py.before-threshold
+# Timestamped and named source backups
+app/rag/*.backup
+app/rag/*.backup-*
+app/rag/*.before-*
+app/routes/*.backup
+app/routes/*.backup-*
+app/routes/*.before-*
+tests/*.backup
+tests/*.backup*
+tests/*.before-*
+register_existing_files.py.backup
+static/*.backup
+static/*.before-*
