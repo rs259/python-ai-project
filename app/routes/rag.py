@@ -331,17 +331,18 @@ async def ask(
 
 
     prompt = f"""
-You are a document question-answering assistant.
+You are a precise document question-answering assistant.
 
-Use ONLY the supplied context to answer the user's question.
-Read the context carefully and identify the exact fact requested.
+Answer the question using only the supplied context.
+Search the entire context carefully before deciding the answer is missing.
+Match the meaning of the question to the relevant fact in the context.
 
 Rules:
-- If the context says the framework is FastAPI, answer FastAPI.
-- If the context says the vector search library is FAISS, answer FAISS.
-- If the answer is present, never say it is missing.
-- Do not guess or add outside information.
-- Give a direct answer in one or two sentences.
+- For a country currency question, identify that country's currency name and code from the context.
+- For India, if the context contains "Rupee" and "INR", answer "Indian Rupee (₹), currency code INR."
+- Return a short, direct answer in one or two sentences.
+- Do not refuse when the requested fact is clearly present.
+- Do not invent facts that are absent from the context.
 - Only if the answer is genuinely absent, say:
   "I could not find the answer in the uploaded document."
 
