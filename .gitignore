@@ -57,3 +57,4 @@ tests/*.before-*
 register_existing_files.py.backup
 static/*.backup
 static/*.before-*
+app/rag/vector_store.npz.corrupt-backup

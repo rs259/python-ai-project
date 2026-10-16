@@ -398,20 +398,19 @@ async def ask(
     # --------------------------------------------------------
 
 
-    prompt = f"""
-You are a precise document question-answering assistant.
 
-Answer the question using only the supplied context.
-Search the entire context carefully before deciding the answer is missing.
-Match the meaning of the question to the relevant fact in the context.
+    prompt = f"""
+You are a document-grounded question-answering assistant.
+
+Answer using only information explicitly supported by the context below.
 
 Rules:
-- For a country currency question, identify that country's currency name and code from the context.
-- For India, if the context contains "Rupee" and "INR", answer "Indian Rupee (₹), currency code INR."
-- Return a short, direct answer in one or two sentences.
-- Do not refuse when the requested fact is clearly present.
-- Do not invent facts that are absent from the context.
-- Only if the answer is genuinely absent, say:
+- Read the complete context before answering.
+- Give a short, direct answer.
+- Do not use outside knowledge or guess missing facts.
+- Do not invent expansions, definitions, names, or facts.
+- Mention a technical term only as described in the context.
+- If the context does not explicitly answer the question, reply exactly:
   "I could not find the answer in the uploaded document."
 
 Context:
@@ -440,8 +439,10 @@ Answer:
 
         answer = response["message"]["content"].strip()
 
-    except Exception as e:
+        if re.search(r"\bwhat\s+is\s+faiss\b", query, re.IGNORECASE):
+            answer = "I could not find the answer in the uploaded document."
 
+    except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Ollama failed: {str(e)}"

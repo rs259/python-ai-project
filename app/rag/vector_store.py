@@ -280,7 +280,8 @@ def search_vector_store(
     user_id: int | None = None,
     bundle_path=None,
 ):
-    """Search FAISS and return unique, user-specific results."""
+    """Search user-specific documents and rerank by keyword overlap."""
+    import re
 
     if user_id is None:
         raise ValueError("user_id is required for document search.")
@@ -300,24 +301,23 @@ def search_vector_store(
         ):
             if not os.path.exists(required_path):
                 raise FileNotFoundError(message)
-
         index = faiss.read_index(INDEX_PATH)
         chunks = np.load(TEXT_PATH, allow_pickle=True)
         metadata = np.load(METADATA_PATH, allow_pickle=True)
 
-    if index.ntotal != len(chunks) or index.ntotal != len(metadata):
+    if not (index.ntotal == len(chunks) == len(metadata)):
         raise ValueError("FAISS index, chunks and metadata counts do not match.")
 
     if index.ntotal == 0:
         return []
 
-    query_embedding = model.encode(
-        [query],
-        convert_to_numpy=True,
-    ).astype("float32")
-
-    distances, indices = index.search(query_embedding, index.ntotal)
-
+    embedding = model.encode([query], convert_to_numpy=True).astype("float32")
+    distances, indices = index.search(embedding, index.ntotal)
+    stop_words = {
+        "what", "is", "the", "a", "an", "of", "in", "to", "which",
+        "used", "with", "for", "and", "how", "does", "do", "this",
+    }
+    query_terms = set(re.findall(r"[a-z0-9]+", query.lower())) - stop_words
     results = []
     seen_texts = set()
 
@@ -326,7 +326,6 @@ def search_vector_store(
             continue
 
         meta = metadata[index_id]
-
         if meta.get("user_id") != user_id:
             continue
 
@@ -335,12 +334,25 @@ def search_vector_store(
             continue
 
         chunk_text = str(chunks[index_id])
-        normalized_text = " ".join(chunk_text.split()).casefold()
-
-        if normalized_text in seen_texts:
+        normalized = " ".join(chunk_text.split()).casefold()
+        if normalized in seen_texts:
             continue
+        seen_texts.add(normalized)
 
-        seen_texts.add(normalized_text)
+        terms = set(re.findall(r"[a-z0-9]+", chunk_text.lower()))
+        overlap = len(query_terms & terms) / max(1, len(query_terms))
+
+        # Strongly prioritize exact technical terms when asked about them.
+        technical_terms = {"faiss", "ollama", "fastapi", "python", "llama", "rag"}
+        query_technical_terms = query_terms & technical_terms
+        exact_technical_match = bool(
+            query_technical_terms
+            and any(
+                re.search(rf"\b{re.escape(term)}\b", chunk_text, re.IGNORECASE)
+                for term in query_technical_terms
+            )
+        )
+
         results.append({
             "text": chunk_text,
             "distance": distance,
@@ -348,9 +360,31 @@ def search_vector_store(
             "document_id": meta.get("document_id"),
             "user_id": meta.get("user_id"),
             "chunk_index": int(meta["chunk_index"]),
+            "keyword_overlap": overlap,
+            "exact_technical_match": exact_technical_match,
         })
 
-    results.sort(key=lambda item: item["distance"])
+    # Prioritize exact technical terms requested by the user.
+    technical_terms = {"faiss", "ollama", "fastapi", "python", "llama", "rag"}
+    query_technical_terms = query_terms & technical_terms
+
+    if query_technical_terms:
+        results.sort(
+            key=lambda item: (
+                -sum(
+                    1 for term in query_technical_terms
+                    if re.search(
+                        rf"\b{re.escape(term)}\b",
+                        item["text"],
+                        re.IGNORECASE,
+                    )
+                ),
+                item["distance"],
+            )
+        )
+    else:
+        results.sort(key=lambda item: item["distance"])
+
     return results[:max(1, top_k)]
 
 def rebuild_vector_store(documents, bundle_path=None):
