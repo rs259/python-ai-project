@@ -242,8 +242,7 @@ def search_vector_store(
     user_id: int | None = None,
     bundle_path=None,
 ):
-
-    """Search the bundle, with legacy-file fallback during migration."""
+    """Search FAISS and return unique, user-specific results."""
 
     if user_id is None:
         raise ValueError("user_id is required for document search.")
@@ -251,9 +250,7 @@ def search_vector_store(
     bundle_path = bundle_path or BUNDLE_PATH
 
     if os.path.exists(bundle_path):
-
         with np.load(bundle_path, allow_pickle=True) as data:
-
             index = faiss.deserialize_index(data["index_bytes"])
             chunks = data["chunks"].copy()
             metadata = data["metadata"].copy()
@@ -284,6 +281,7 @@ def search_vector_store(
     distances, indices = index.search(query_embedding, index.ntotal)
 
     results = []
+    seen_texts = set()
 
     for distance, index_id in zip(distances[0], indices[0]):
         if index_id < 0:
@@ -294,9 +292,20 @@ def search_vector_store(
         if meta.get("user_id") != user_id:
             continue
 
+        distance = float(distance)
+        if distance > 2.0:
+            continue
+
+        chunk_text = str(chunks[index_id])
+        normalized_text = " ".join(chunk_text.split()).casefold()
+
+        if normalized_text in seen_texts:
+            continue
+
+        seen_texts.add(normalized_text)
         results.append({
-            "text": str(chunks[index_id]),
-            "distance": float(distance),
+            "text": chunk_text,
+            "distance": distance,
             "filename": meta["filename"],
             "document_id": meta.get("document_id"),
             "user_id": meta.get("user_id"),
@@ -304,14 +313,8 @@ def search_vector_store(
         })
 
     results.sort(key=lambda item: item["distance"])
-
-    max_distance = 2.0
-    results = [
-        item for item in results
-        if item["distance"] <= max_distance
-    ]
-
     return results[:max(1, top_k)]
+
 def rebuild_vector_store(documents, bundle_path=None):
     """Rebuild the complete Knowledge Base and atomically save its bundle."""
     from pathlib import Path

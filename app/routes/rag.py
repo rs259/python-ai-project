@@ -1,3 +1,4 @@
+import re
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pathlib import Path
@@ -215,7 +216,7 @@ async def search(query: str, user_id: int = Depends(verify_token)):
 
     try:
 
-        results = search_vector_store(query, user_id=user_id)
+        results = search_vector_store(query, top_k=10, user_id=user_id)
 
         return {
             "query": query,
@@ -255,7 +256,7 @@ async def ask(
 
     try:
 
-        results = search_vector_store(query, user_id=user_id)
+        results = search_vector_store(query, top_k=28, user_id=user_id)
 
     except Exception as e:
 
@@ -309,6 +310,59 @@ async def ask(
             context_parts.append(result)
 
     context = "\n\n".join(context_parts)
+
+    # --------------------------------------------------------
+    # Exact country-currency answer from retrieved source text
+    # --------------------------------------------------------
+    currency_match = re.search(
+        r"currency\s+(?:of\s+)?([A-Za-z][A-Za-z ]*?)\??$",
+        query.strip(),
+        re.IGNORECASE,
+    )
+
+    if currency_match:
+        country = currency_match.group(1).strip()
+        source_text = " ".join(context.split())
+
+        # Match the country record and stop before the next country.
+        country_pattern = re.compile(
+            rf"\b{re.escape(country)}\s+"
+            rf"(.{{1,100}}?)"
+            rf"(?=\b(?:Afghanistan|Albania|Algeria|Argentina|Australia|"
+            rf"Bangladesh|Belgium|Brazil|Canada|China|Denmark|Egypt|France|"
+            rf"Germany|India|Indonesia|Iran|Italy|Japan|Kenya|Malaysia|"
+            rf"Mexico|Nepal|Netherlands|New Zealand|Nigeria|Norway|Pakistan|"
+            rf"Philippines|Russia|Saudi Arabia|Singapore|South Africa|"
+            rf"South Korea|Spain|Sri Lanka|Sweden|Switzerland|Thailand|"
+            rf"Turkey|Ukraine|United Kingdom|United States|Vietnam|Zimbabwe)\b|$)",
+            re.IGNORECASE,
+        )
+        record_match = country_pattern.search(source_text)
+
+        if record_match:
+            record = record_match.group(0).strip()
+            code_match = re.search(
+                r"\b([A-Z]{3})\b",
+                record,
+            )
+            if code_match:
+                answer = f"{record_match.group(1).strip()}, currency code {code_match.group(1)}."
+                try:
+                    save_chat_history(
+                        user_id=user_id,
+                        query=query,
+                        answer=answer,
+                    )
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Chat history save failed: {str(e)}",
+                    )
+                return {
+                    "query": query,
+                    "answer": answer,
+                    "sources": results,
+                }
 
     # --------------------------------------------------------
     # Step 4: Check context
