@@ -315,7 +315,7 @@ async def ask(
     # Exact country-currency answer from retrieved source text
     # --------------------------------------------------------
     currency_match = re.search(
-        r"currency\s+(?:of\s+)?([A-Za-z][A-Za-z ]*?)\??$",
+        r"\b(?:what\s+is\s+the\s+)?currency\s+of\s+([A-Za-z]+(?:\s+[A-Za-z]+)*)\s*\??$",
         query.strip(),
         re.IGNORECASE,
     )
@@ -324,29 +324,42 @@ async def ask(
         country = currency_match.group(1).strip()
         source_text = " ".join(context.split())
 
-        # Match the country record and stop before the next country.
+        next_country = (
+            r"Afghanistan|Albania|Algeria|Argentina|Australia|Bangladesh|"
+            r"Belgium|Brazil|Canada|China|Denmark|Egypt|France|Germany|"
+            r"India|Indonesia|Iran|Italy|Japan|Kenya|Malaysia|Mexico|Nepal|"
+            r"Netherlands|Nigeria|Norway|Pakistan|Philippines|Russia|"
+            r"Saudi Arabia|Singapore|South Africa|South Korea|Spain|"
+            r"Sri Lanka|Sweden|Switzerland|Thailand|Turkey|Ukraine|"
+            r"United Kingdom|United States|Vietnam|Zimbabwe"
+        )
+
         country_pattern = re.compile(
-            rf"\b{re.escape(country)}\s+"
-            rf"(.{{1,100}}?)"
-            rf"(?=\b(?:Afghanistan|Albania|Algeria|Argentina|Australia|"
-            rf"Bangladesh|Belgium|Brazil|Canada|China|Denmark|Egypt|France|"
-            rf"Germany|India|Indonesia|Iran|Italy|Japan|Kenya|Malaysia|"
-            rf"Mexico|Nepal|Netherlands|New Zealand|Nigeria|Norway|Pakistan|"
-            rf"Philippines|Russia|Saudi Arabia|Singapore|South Africa|"
-            rf"South Korea|Spain|Sri Lanka|Sweden|Switzerland|Thailand|"
-            rf"Turkey|Ukraine|United Kingdom|United States|Vietnam|Zimbabwe)\b|$)",
+            rf"\b({re.escape(country)})\s+(.{{1,100}}?)"
+            rf"(?=\b(?:{next_country})\b|$)",
             re.IGNORECASE,
         )
         record_match = country_pattern.search(source_text)
 
         if record_match:
-            record = record_match.group(0).strip()
-            code_match = re.search(
-                r"\b([A-Z]{3})\b",
-                record,
-            )
+            record = record_match.group(2).strip()
+            code_match = re.search(r"\b([A-Z]{3})\b", record)
+
             if code_match:
-                answer = f"{record_match.group(1).strip()}, currency code {code_match.group(1)}."
+                currency_name = re.sub(
+                    r"\s+", " ", record
+                ).strip()
+
+                # Stop the currency name before its 3-letter code.
+                currency_name = re.split(
+                    r"\s+[^\s]{1,5}\s+[A-Z]{3}\b",
+                    currency_name,
+                    maxsplit=1,
+                )[0].strip()
+
+                answer = (
+                    f"{currency_name}, currency code {code_match.group(1)}."
+                )
                 try:
                     save_chat_history(
                         user_id=user_id,
@@ -358,6 +371,7 @@ async def ask(
                         status_code=500,
                         detail=f"Chat history save failed: {str(e)}",
                     )
+
                 return {
                     "query": query,
                     "answer": answer,

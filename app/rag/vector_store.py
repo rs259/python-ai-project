@@ -62,9 +62,7 @@ def save_vector_bundle(index, chunks, metadata, bundle_path=None):
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
 def create_chunks(text: str, chunk_size: int = 80):
-    """Clean text and create chunks while preserving CSV records."""
-    import csv
-    import io
+    """Clean text and create useful chunks for documents and currency tables."""
     import re
 
     text = text.replace("\x7f", " ")
@@ -73,33 +71,74 @@ def create_chunks(text: str, chunk_size: int = 80):
     if not text:
         return []
 
-    # Handle country/currency CSV tables.
-    lines = text.splitlines()
+    # Detect the extracted world-currency PDF, where each field may
+    # appear on a separate line.
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    joined = " ".join(lines)
+
     if (
-        lines
-        and "country" in lines[0].lower()
-        and "currency" in lines[0].lower()
-        and "," in lines[0]
+        "List of World Currency Names" in joined
+        or (
+            "Country Currency Name Symbol ISO Code".lower()
+            in re.sub(r"\s+", " ", joined).lower()
+        )
     ):
-        try:
-            rows = csv.DictReader(io.StringIO(text))
-            csv_chunks = []
+        country_names = [
+            "Afghanistan", "Albania", "Algeria", "Andorra", "Angola",
+            "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
+            "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus",
+            "Belgium", "Belize", "Benin", "Bhutan", "Bolivia",
+            "Bosnia & Herzegovina", "Botswana", "Brazil", "Brunei",
+            "Bulgaria", "Burkina Faso", "Burundi", "Cambodia", "Cameroon",
+            "Canada", "Cape Verde", "Central African Republic", "Chad",
+            "Chile", "China", "Colombia", "Comoros", "Congo (DRC)",
+            "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic",
+            "Denmark", "Djibouti", "Dominican Republic", "Ecuador", "Egypt",
+            "El Salvador", "Estonia", "Ethiopia", "Fiji", "Finland", "France",
+            "Georgia", "Germany", "Ghana", "Greece", "Guatemala", "Honduras",
+            "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq",
+            "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan",
+            "Kazakhstan", "Kenya", "Kuwait", "Lebanon", "Lesotho", "Liberia",
+            "Libya", "Lithuania", "Luxembourg", "Madagascar", "Malawi",
+            "Malaysia", "Maldives", "Malta", "Mauritius", "Mexico", "Mongolia",
+            "Morocco", "Mozambique", "Myanmar", "Namibia", "Nepal",
+            "Netherlands", "New Zealand", "Nigeria", "North Korea", "Norway",
+            "Oman", "Pakistan", "Panama", "Papua New Guinea", "Paraguay",
+            "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania",
+            "Russia", "Rwanda", "Saudi Arabia", "Senegal", "Serbia",
+            "Seychelles", "Singapore", "Slovakia", "Slovenia", "Somalia",
+            "South Africa", "South Korea", "Spain", "Sri Lanka", "Sudan",
+            "Sweden", "Switzerland", "Syria", "Taiwan", "Tanzania", "Thailand",
+            "Tunisia", "Turkey", "Uganda", "Ukraine", "United Arab Emirates",
+            "United Kingdom", "United States", "Uruguay", "Uzbekistan",
+            "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe",
+        ]
 
-            for row in rows:
-                record = ", ".join(
-                    f"{key.strip()}: {value.strip()}"
-                    for key, value in row.items()
-                    if key and value and value.strip()
-                )
-                if record:
-                    csv_chunks.append(record)
+        # Match complete country names, longest names first.
+        country_pattern = re.compile(
+            r"(?<![A-Za-z])("
+            + "|".join(
+                re.escape(name)
+                for name in sorted(country_names, key=len, reverse=True)
+            )
+            + r")(?![A-Za-z])",
+            re.IGNORECASE,
+        )
 
-            if csv_chunks:
-                return csv_chunks
-        except (csv.Error, AttributeError):
-            pass
+        matches = list(country_pattern.finditer(joined))
+        records = []
 
-    # Separate known headings from surrounding text.
+        for i, match in enumerate(matches):
+            country = match.group(1)
+            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(joined)
+            details = joined[match.end():end_pos].strip(" ,:\n")
+            if details:
+                records.append(f"{country} {details}")
+
+        if records:
+            return records
+
+    # Keep the existing general-document chunking behavior.
     headings = (
         "Purpose",
         "Python",
@@ -142,7 +181,6 @@ def create_chunks(text: str, chunk_size: int = 80):
         chunks.append(" ".join(current))
 
     return chunks
-
 
 def create_vector_store(
     text: str,
