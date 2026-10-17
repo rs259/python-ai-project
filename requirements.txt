@@ -87,3 +87,6 @@ Pillow
 pytesseract
 python-docx
 pdf2image
+
+ollama
+reportlab
