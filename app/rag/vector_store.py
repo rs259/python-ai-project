@@ -10,7 +10,37 @@ INDEX_PATH = "app/rag/faiss.index"
 TEXT_PATH = "app/rag/text_chunks.npy"
 METADATA_PATH = "app/rag/metadata.npy"
 BUNDLE_PATH = "app/rag/vector_store.npz"
-model = SentenceTransformer(MODEL_NAME)
+_model = None
+
+def get_model():
+    """Load the embedding model only when first needed."""
+    global _model
+    if _model is None:
+        _model = SentenceTransformer(MODEL_NAME)
+    return _model
+
+
+class LazyModel:
+    """Load the embedding model on demand and allow tests to mock encode."""
+    def __init__(self):
+        self._encode_override = None
+
+    def encode(self, *args, **kwargs):
+        if self._encode_override is not None:
+            return self._encode_override(*args, **kwargs)
+        return get_model().encode(*args, **kwargs)
+
+    def __setattr__(self, name, value):
+        if name == "encode" and callable(value):
+            object.__setattr__(self, "_encode_override", value)
+        else:
+            object.__setattr__(self, name, value)
+
+    def get_sentence_embedding_dimension(self):
+        return get_model().get_sentence_embedding_dimension()
+
+
+model = LazyModel()
 
 def save_vector_bundle(index, chunks, metadata, bundle_path=None):
     """Save FAISS index, chunks and metadata as one atomic bundle."""
