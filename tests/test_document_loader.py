@@ -99,3 +99,47 @@ def test_extract_text_from_image(tmp_path):
 
     assert "INDIA" in result
     assert "INR" in result
+
+
+
+def test_extract_text_from_scanned_pdf(tmp_path):
+    from PIL import Image, ImageDraw, ImageFont
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import ImageReader
+
+    image_path = tmp_path / "scanned_page.png"
+    pdf_path = tmp_path / "scanned.pdf"
+
+    image = Image.new("RGB", (1200, 250), "white")
+    draw = ImageDraw.Draw(image)
+
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            60,
+        )
+    except OSError:
+        font = ImageFont.load_default()
+
+    draw.text(
+        (40, 70),
+        "SCANNED TEST INDIA INR",
+        font=font,
+        fill="black",
+    )
+    image.save(image_path)
+
+    pdf = canvas.Canvas(str(pdf_path))
+    pdf.drawImage(
+        ImageReader(image),
+        0, 0,
+        width=600,
+        height=125,
+    )
+    pdf.save()
+
+    result = extract_text_from_file(str(pdf_path)).upper()
+
+    assert "SCANNED" in result
+    assert "INDIA" in result
+    assert "INR" in result
