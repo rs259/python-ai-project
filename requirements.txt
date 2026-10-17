@@ -85,3 +85,4 @@ uvicorn==0.54.0
 pytest
 Pillow
 pytesseract
+python-docx
