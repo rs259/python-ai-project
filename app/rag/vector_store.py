@@ -1,7 +1,6 @@
 import os
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 
 MODEL_NAME = "all-MiniLM-L6-v2"
@@ -16,6 +15,7 @@ def get_model():
     """Load the embedding model only when first needed."""
     global _model
     if _model is None:
+        from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer(MODEL_NAME)
     return _model
 
