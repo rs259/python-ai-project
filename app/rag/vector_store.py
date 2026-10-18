@@ -15,10 +15,16 @@ def get_model():
     """Load the embedding model only when first needed."""
     global _model
     if _model is None:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(MODEL_NAME)
-    return _model
+        import torch
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
 
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer(
+            MODEL_NAME,
+            device="cpu",
+        )
+    return _model
 
 class LazyModel:
     """Load the embedding model on demand and allow tests to mock encode."""
