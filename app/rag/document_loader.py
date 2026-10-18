@@ -1,12 +1,9 @@
 
 from pathlib import Path
 
-import pandas as pd
 from app.rag.ocr import extract_text_from_image
 from docx import Document
 from pypdf import PdfReader
-from pdf2image import convert_from_path
-import pytesseract
 
 
 SUPPORTED_EXTENSIONS = {
@@ -26,6 +23,9 @@ def extract_pdf(file_path: str) -> str:
 
     # OCR fallback for scanned PDFs
     if not any(pages):
+        from pdf2image import convert_from_path
+        import pytesseract
+
         images = convert_from_path(file_path)
         for image in images:
             text = pytesseract.image_to_string(image)
@@ -65,10 +65,12 @@ def extract_txt(file_path: str) -> str:
 
 
 def extract_csv(file_path: str) -> str:
+    import pandas as pd
     return pd.read_csv(file_path).to_csv(index=False)
 
 
 def extract_excel(file_path: str) -> str:
+    import pandas as pd
     excel_file = pd.ExcelFile(file_path)
     sheets = []
 
