@@ -418,13 +418,13 @@ def search_vector_store(
     return results[:max(1, top_k)]
 
 def rebuild_vector_store(documents, bundle_path=None):
-    """Rebuild the complete Knowledge Base and atomically save its bundle."""
+    """Rebuild the complete Knowledge Base using less temporary memory."""
     from pathlib import Path
     from app.rag.document_loader import extract_text_from_file
 
     all_chunks = []
     all_metadata = []
-    all_embeddings = []
+    index = None
     indexed_paths = set()
     indexed_documents = 0
 
@@ -444,31 +444,32 @@ def rebuild_vector_store(documents, bundle_path=None):
         if not chunks:
             continue
 
-        embeddings = model.encode(
-            chunks,
-            convert_to_numpy=True,
-        ).astype("float32")
-
-        all_embeddings.append(embeddings)
-        indexed_documents += 1
-
         for chunk in chunks:
-            all_chunks.append(chunk)
             all_metadata.append({
                 "filename": document.filename,
                 "document_id": document.id,
                 "user_id": document.user_id,
-                "chunk_index": len(all_metadata),
+                "chunk_index": len(all_chunks),
             })
+            all_chunks.append(chunk)
+
+        embeddings = model.encode(
+            chunks,
+            convert_to_numpy=True,
+            batch_size=8,
+            show_progress_bar=False,
+        ).astype("float32")
+
+        if index is None:
+            index = faiss.IndexFlatL2(embeddings.shape[1])
+
+        index.add(embeddings)
+        del embeddings
+        indexed_documents += 1
 
     os.makedirs("app/rag", exist_ok=True)
 
-    if all_embeddings:
-        combined_embeddings = np.vstack(all_embeddings).astype("float32")
-        index = faiss.IndexFlatL2(combined_embeddings.shape[1])
-        index.add(combined_embeddings)
-    else:
-        # Empty index: keep its dimension consistent with the embedding model.
+    if index is None:
         dimension = model.get_sentence_embedding_dimension()
         index = faiss.IndexFlatL2(dimension)
 
