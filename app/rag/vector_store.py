@@ -1,40 +1,23 @@
 import os
 import faiss
 import numpy as np
-
-
-MODEL_NAME = "all-MiniLM-L6-v2"
+from app.rag.lightweight_embeddings import encode_texts
 
 INDEX_PATH = "app/rag/faiss.index"
 TEXT_PATH = "app/rag/text_chunks.npy"
 METADATA_PATH = "app/rag/metadata.npy"
 BUNDLE_PATH = "app/rag/vector_store.npz"
-_model = None
 
-def get_model():
-    """Load the embedding model only when first needed."""
-    global _model
-    if _model is None:
-        import torch
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
-
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(
-            MODEL_NAME,
-            device="cpu",
-        )
-    return _model
 
 class LazyModel:
     """Load the embedding model on demand and allow tests to mock encode."""
     def __init__(self):
         self._encode_override = None
 
-    def encode(self, *args, **kwargs):
+    def encode(self, texts, *args, **kwargs):
         if self._encode_override is not None:
-            return self._encode_override(*args, **kwargs)
-        return get_model().encode(*args, **kwargs)
+            return self._encode_override(texts, *args, **kwargs)
+        return encode_texts(texts, batch_size=kwargs.get('batch_size', 8))
 
     def __setattr__(self, name, value):
         if name == "encode" and callable(value):
@@ -43,7 +26,7 @@ class LazyModel:
             object.__setattr__(self, name, value)
 
     def get_sentence_embedding_dimension(self):
-        return get_model().get_sentence_embedding_dimension()
+        return 384
 
 
 model = LazyModel()
