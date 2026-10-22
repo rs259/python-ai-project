@@ -12,13 +12,24 @@ const dashboardPage = document.getElementById("dashboardPage");
 // ================================
 // PAGE SWITCH
 // ================================
-
 function showLogin() {
     loginPage.classList.remove("hidden");
     registerPage.classList.add("hidden");
     dashboardPage.classList.add("hidden");
-}
 
+    // Clear previous account's visible data
+    const currentUser = document.getElementById("currentUser");
+    if (currentUser) currentUser.textContent = "";
+
+    const questionInput = document.getElementById("questionInput");
+    if (questionInput) questionInput.value = "";
+
+    const answerText = document.getElementById("answerText");
+    if (answerText) answerText.textContent = "";
+
+    const answerBox = document.getElementById("answerBox");
+    if (answerBox) answerBox.classList.add("hidden");
+}
 function showRegister() {
     loginPage.classList.add("hidden");
     registerPage.classList.remove("hidden");
