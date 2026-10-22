@@ -30,16 +30,26 @@ def test_faiss_question_returns_document_fallback(monkeypatch):
         ],
     )
 
-    # Avoid calling the actual Ollama model.
-    monkeypatch.setattr(
-        rag,
-        "chat",
-        lambda **kwargs: {
-            "message": {
-                "content": "FAISS stands for Facebook AI Similarity Search."
-            }
-        },
-    )
+    # Mock Groq so tests never make a real API request.
+    class FakeCompletions:
+        @staticmethod
+        def create(**kwargs):
+            return type("Response", (), {
+                "choices": [type("Choice", (), {
+                    "message": type("Message", (), {
+                        "content": "FAISS stands for Facebook AI Similarity Search."
+                    })()
+                })()]
+            })()
+
+    class FakeGroq:
+        def __init__(self, api_key):
+            self.chat = type("Chat", (), {
+                "completions": FakeCompletions()
+            })()
+
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setattr(rag, "Groq", FakeGroq)
 
     monkeypatch.setattr(rag, "save_chat_history", lambda **kwargs: None)
 
@@ -77,15 +87,25 @@ def test_rag_answer_uses_document_context(monkeypatch):
         ],
     )
 
-    monkeypatch.setattr(
-        rag,
-        "chat",
-        lambda **kwargs: {
-            "message": {
-                "content": "RAG retrieves relevant document chunks and sends them to a language model."
-            }
-        },
-    )
+    class FakeCompletions:
+        @staticmethod
+        def create(**kwargs):
+            return type("Response", (), {
+                "choices": [type("Choice", (), {
+                    "message": type("Message", (), {
+                        "content": "RAG retrieves relevant document chunks and sends them to a language model."
+                    })()
+                })()]
+            })()
+
+    class FakeGroq:
+        def __init__(self, api_key):
+            self.chat = type("Chat", (), {
+                "completions": FakeCompletions()
+            })()
+
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setattr(rag, "Groq", FakeGroq)
 
     monkeypatch.setattr(rag, "save_chat_history", lambda **kwargs: None)
 

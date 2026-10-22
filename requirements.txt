@@ -70,3 +70,4 @@ ollama
 reportlab
 openpyxl
 onnxruntime==1.24.4
+groq==1.7.0

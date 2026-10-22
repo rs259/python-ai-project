@@ -4,7 +4,11 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pathlib import Path
 import sqlite3
 import uuid
-from ollama import chat
+import os
+from groq import Groq
+
+# Backward compatibility for existing tests
+chat = None
 from app.routes.auth import verify_token
 from app.database import SessionLocal
 from app.models.document import Document
@@ -28,7 +32,7 @@ UPLOAD_DIR = Path("app/rag/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 DATABASE = "app.db"
-OLLAMA_MODEL = "llama3.2"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # ============================================================
 # CHAT HISTORY TABLE
@@ -433,30 +437,40 @@ Answer:
 """
 
     # --------------------------------------------------------
-    # Step 6: Call Ollama
+    # Step 6: Call Groq
     # --------------------------------------------------------
 
     try:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="GROQ_API_KEY is not configured."
+            )
 
-        response = chat(
-            model=OLLAMA_MODEL,
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
             messages=[
                 {
                     "role": "user",
                     "content": prompt
                 }
-            ]
+            ],
+            temperature=0.1,
         )
 
-        answer = response["message"]["content"].strip()
+        answer = (response.choices[0].message.content or "").strip()
 
         if re.search(r"\bwhat\s+is\s+faiss\b", query, re.IGNORECASE):
             answer = "I could not find the answer in the uploaded document."
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Ollama failed: {str(e)}"
+            status_code=502,
+            detail=f"Groq request failed: {str(e)}"
         )
 
     # --------------------------------------------------------
