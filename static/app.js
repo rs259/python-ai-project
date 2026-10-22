@@ -183,14 +183,12 @@ function authHeaders() {
 // ================================
 
 function logout() {
-
     localStorage.removeItem("access_token");
     localStorage.removeItem("username");
+    sessionStorage.clear();
 
     showLogin();
-
 }
-
 
 // ================================
 // SECTION SWITCH
@@ -501,3 +499,42 @@ async function loadHistory() {
         console.error("loadHistory error:", error);
     }
 }
+
+// ================================
+// RESTORE LOGIN AFTER PAGE REFRESH
+// ================================
+
+document.addEventListener("DOMContentLoaded", async function () {
+    const token = localStorage.getItem("access_token");
+
+    if (!token) {
+        showLogin();
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API}/auth/me`, {
+            method: "GET",
+            headers: authHeaders()
+        });
+
+        if (!response.ok) {
+            logout();
+            return;
+        }
+
+        const user = await response.json();
+
+        document.getElementById("currentUser").textContent =
+            user.name || user.email || localStorage.getItem("username") || "";
+
+        localStorage.setItem("username", user.name || user.email || "");
+
+        showDashboard();
+        showSection("askSection");
+
+    } catch (error) {
+        console.error("Session restore failed:", error);
+        showLogin();
+    }
+});
