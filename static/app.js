@@ -93,6 +93,7 @@ document.getElementById("loginForm").addEventListener("submit", async function(e
         showDashboard();
 
         showSection("askSection");
+        await loadDocuments();
 
     } catch (error) {
 
