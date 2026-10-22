@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS chat_history (
 )        """
     )
 
+    columns = {
+        row[1] for row in cursor.execute(
+            "PRAGMA table_info(chat_history)"
+        ).fetchall()
+    }
+
+    if "user_id" not in columns:
+        cursor.execute(
+            "ALTER TABLE chat_history ADD COLUMN user_id INTEGER"
+        )
+
     conn.commit()
     conn.close()
 
