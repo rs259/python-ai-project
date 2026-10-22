@@ -512,19 +512,20 @@ async function loadHistory() {
     }
 }
 
-// ================================
-// RESTORE LOGIN AFTER PAGE REFRESH
+
+
+ // RESTORE LOGIN AFTER PAGE REFRESH
 // ================================
 
 document.addEventListener("DOMContentLoaded", async function () {
-    const token = localStorage.getItem("access_token");
-
-    if (!token) {
-        showLogin();
-        return;
-    }
-
     try {
+        const token = localStorage.getItem("access_token");
+
+        if (!token) {
+            showLogin();
+            return;
+        }
+
         const response = await fetch(`${API}/auth/me`, {
             method: "GET",
             headers: authHeaders()
@@ -544,9 +545,12 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         showDashboard();
         showSection("askSection");
+        await loadDocuments();
 
     } catch (error) {
         console.error("Session restore failed:", error);
         showLogin();
+    } finally {
+        document.body.classList.remove("auth-check");
     }
 });

@@ -5,9 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI RAG Assistant</title>
     <link rel="stylesheet" href="/static/style.css">
+<style>
+    body.auth-check #loginPage,
+    body.auth-check #registerPage,
+    body.auth-check #dashboardPage {
+        display: none !important;
+    }
+</style>
 </head>
 
-<body>
+<body class="auth-check">
 
 <!-- LOGIN -->
 <div id="loginPage" class="auth-page">
