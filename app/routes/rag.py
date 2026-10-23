@@ -361,17 +361,15 @@ async def ask(
             code_match = re.search(r"\b([A-Z]{3})\b", record)
 
             if code_match:
-                currency_name = re.sub(
-                    r"\s+", " ", record
-                ).strip()
 
                 # Stop the currency name before its 3-letter code.
-                currency_name = re.split(
-                    r"\s+[^\s]{1,5}\s+[A-Z]{3}\b",
-                    currency_name,
-                    maxsplit=1,
-                )[0].strip()
-
+                currency_name = record[:code_match.start()]
+                currency_name = re.sub(r"[\s/|]+$", "", currency_name)
+                currency_name = re.sub(
+                  r"\s*[$€£¥₹₩₽₺₫₱฿₦₴₵₲₪₡₭₮₼₾₿]+\s*$",
+                   "",
+                  currency_name,
+                ).strip()
                 answer = (
                     f"{currency_name}, currency code {code_match.group(1)}."
                 )
