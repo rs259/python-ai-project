@@ -336,9 +336,12 @@ async def ask(
     )
 
     if currency_match:
+        print(
+            f"DEBUG currency query matched: {currency_match.group(1)!r}",
+            flush=True,
+        )
         country = currency_match.group(1).strip()
         source_text = " ".join(context.split())
-
         next_country = (
             r"Afghanistan|Albania|Algeria|Argentina|Australia|Bangladesh|"
             r"Belgium|Brazil|Canada|China|Denmark|Egypt|France|Germany|"
@@ -356,6 +359,11 @@ async def ask(
         )
         record_match = country_pattern.search(source_text)
 
+        print(
+            f"DEBUG country record: {record_match.group(0)!r}"
+            if record_match else "DEBUG country record: NO MATCH",
+            flush=True,
+        )
         if record_match:
             record = record_match.group(2).strip()
             code_match = re.search(r"\b([A-Z]{3})\b", record)
