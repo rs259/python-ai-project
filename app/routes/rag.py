@@ -353,12 +353,10 @@ async def ask(
         )
 
         country_pattern = re.compile(
-            rf"\b({re.escape(country)})\s+(.{{1,100}}?)"
-            rf"(?=\b(?:{next_country})\b|$)",
-            re.IGNORECASE,
+            rf"\b({re.escape(country)})\s+"
+            rf"(.{{1,100}}?\b[A-Z]{{3}}\b)"
         )
         record_match = country_pattern.search(source_text)
-
         print(
             f"DEBUG country record: {record_match.group(0)!r}"
             if record_match else "DEBUG country record: NO MATCH",
